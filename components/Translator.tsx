@@ -84,8 +84,11 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
 
   const startCropSelection = () => {
       setShowCropOverlay(true);
-      // We need to capture one frame to show as background for selection
-      if (videoRef.current && overlayCanvasRef.current) {
+      // Drawing moved to useEffect to ensure canvas is mounted
+  };
+
+  useEffect(() => {
+      if (showCropOverlay && videoRef.current && overlayCanvasRef.current) {
           const video = videoRef.current;
           const canvas = overlayCanvasRef.current;
           canvas.width = video.videoWidth;
@@ -93,7 +96,7 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
           const ctx = canvas.getContext('2d');
           if (ctx) ctx.drawImage(video, 0, 0);
       }
-  };
+  }, [showCropOverlay]);
 
   const handleOverlayMouseDown = (e: React.MouseEvent) => {
       const canvas = overlayCanvasRef.current;
@@ -694,8 +697,18 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
                     )}
                     title="Select Crop Area"
                   >
-                    CROP
+                    {cropBox ? "RECROP" : "CROP"}
                   </button>
+                  
+                  {cropBox && (
+                      <button
+                        onClick={() => setCropBox(null)}
+                        className="text-gray-500 hover:text-red-600 px-2 py-1 rounded-md text-xs font-bold border border-gray-200 hover:bg-red-50"
+                        title="Clear Crop"
+                      >
+                        RESET
+                      </button>
+                  )}
 
                    <button
                     onClick={handleAutoCaptureToggle}
