@@ -270,6 +270,7 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
 
   const [pipWidth, setPipWidth] = useState(600);
   const [pipHeight, setPipHeight] = useState(200);
+  const [pipFontSize, setPipFontSize] = useState(20); // Default font size 20px
   const [showPipSettings, setShowPipSettings] = useState(false);
 
   const updatePiPWindow = (text: string) => {
@@ -294,15 +295,16 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
 
     // Draw Text
     ctx.fillStyle = '#ffffff';
-    ctx.font = '500 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif'; // Better font stack
+    // Use dynamic font size
+    ctx.font = `500 ${pipFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`; 
     ctx.textBaseline = 'top';
     
-    // Smart wrapping handling both CJK and English
+    // Smart wrapping based on dynamic width and font size
     const chars = text.split('');
     let line = '';
     let y = 16;
     const maxWidth = pipWidth - 40; // Dynamic max width with padding
-    const lineHeight = 30; // Comfortable reading height
+    const lineHeight = pipFontSize * 1.5; // Dynamic line height (1.5x font size)
     
     for (let i = 0; i < chars.length; i++) {
         const char = chars[i];
@@ -791,12 +793,32 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
                                         className="w-full"
                                       />
                                   </div>
+
+                                  <div>
+                                      <div className="flex justify-between text-xs text-gray-600 mb-1">
+                                          <span>Font Size</span>
+                                          <span>{pipFontSize}px</span>
+                                      </div>
+                                      <input 
+                                        type="range" 
+                                        min="12" 
+                                        max="48" 
+                                        step="2"
+                                        value={pipFontSize}
+                                        onChange={(e) => {
+                                            setPipFontSize(Number(e.target.value));
+                                            updatePiPWindow(targetText || "Adjusting font...");
+                                        }}
+                                        className="w-full"
+                                      />
+                                  </div>
                                   
                                   <div className="pt-2 border-t border-gray-100 flex justify-between gap-2">
                                       <button 
                                         onClick={() => {
                                             setPipWidth(600);
                                             setPipHeight(200);
+                                            setPipFontSize(20);
                                             updatePiPWindow(targetText || "Resetting...");
                                         }}
                                         className="text-xs text-blue-600 hover:underline"
