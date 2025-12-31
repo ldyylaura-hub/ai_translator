@@ -144,26 +144,44 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
     ctx.font = 'bold 24px sans-serif';
     ctx.textBaseline = 'top';
     
-    // Simple text wrapping
-    const words = text.split(' ');
+    // Auto-resize canvas height based on text length?
+    // We can't resize canvas of a live stream easily without glitch.
+    // Better to just have a taller canvas or scroll.
+    // For now, let's just clear and redraw.
+    
+    // Smart wrapping handling both CJK and English
+    const chars = text.split('');
     let line = '';
     let y = 20;
     const maxWidth = 560;
     const lineHeight = 32;
-
-    for (let n = 0; n < words.length; n++) {
-      const testLine = line + words[n] + ' ';
-      const metrics = ctx.measureText(testLine);
-      const testWidth = metrics.width;
-      if (testWidth > maxWidth && n > 0) {
-        ctx.fillText(line, 20, y);
-        line = words[n] + ' ';
-        y += lineHeight;
-      } else {
-        line = testLine;
-      }
+    
+    for (let i = 0; i < chars.length; i++) {
+        const char = chars[i];
+        const testLine = line + char;
+        const metrics = ctx.measureText(testLine);
+        
+        if (metrics.width > maxWidth && i > 0) {
+            ctx.fillText(line, 20, y);
+            line = char;
+            y += lineHeight;
+            
+            // If text exceeds canvas height, we should probably clear and show only latest?
+            // Or just fade out. 
+            // Let's just stop drawing if it overflows for now to prevent messy overlap.
+            if (y > pipCanvas.height - lineHeight) {
+                // Draw ellipsis
+                ctx.fillText("...", 20, y);
+                break;
+            }
+        } else {
+            line = testLine;
+        }
     }
-    ctx.fillText(line, 20, y);
+    // Draw last line if we didn't break early
+    if (y <= pipCanvas.height - lineHeight) {
+        ctx.fillText(line, 20, y);
+    }
 
     // If PiP video element doesn't exist, create it
     if (!pipVideoRef.current) {
