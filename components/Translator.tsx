@@ -96,10 +96,13 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
   };
 
   const handleOverlayMouseDown = (e: React.MouseEvent) => {
-      const rect = overlayCanvasRef.current?.getBoundingClientRect();
-      if (!rect) return;
+      const canvas = overlayCanvasRef.current;
+      if (!canvas) return;
+      
+      const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
+      
       selectionStartRef.current = { x, y };
       setIsSelecting(true);
       setTempCrop({ x, y, width: 0, height: 0 });
@@ -107,6 +110,7 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
 
   const handleOverlayMouseMove = (e: React.MouseEvent) => {
       if (!isSelecting || !selectionStartRef.current || !overlayCanvasRef.current) return;
+      
       const rect = overlayCanvasRef.current.getBoundingClientRect();
       const currentX = e.clientX - rect.left;
       const currentY = e.clientY - rect.top;
@@ -114,30 +118,72 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
       const startX = selectionStartRef.current.x;
       const startY = selectionStartRef.current.y;
       
+      // Constrain within canvas bounds
+      const clampedX = Math.max(0, Math.min(currentX, rect.width));
+      const clampedY = Math.max(0, Math.min(currentY, rect.height));
+
       setTempCrop({
-          x: Math.min(startX, currentX),
-          y: Math.min(startY, currentY),
-          width: Math.abs(currentX - startX),
-          height: Math.abs(currentY - startY)
+          x: Math.min(startX, clampedX),
+          y: Math.min(startY, clampedY),
+          width: Math.abs(clampedX - startX),
+          height: Math.abs(clampedY - startY)
       });
   };
 
   const handleOverlayMouseUp = () => {
       setIsSelecting(false);
-      if (tempCrop && tempCrop.width > 10 && tempCrop.height > 10) {
-          // Scale coordinates from CSS pixels to Canvas pixels
-          if (overlayCanvasRef.current) {
-               const rect = overlayCanvasRef.current.getBoundingClientRect();
-               const scaleX = overlayCanvasRef.current.width / rect.width;
-               const scaleY = overlayCanvasRef.current.height / rect.height;
-               
-               setCropBox({
-                   x: tempCrop.x * scaleX,
-                   y: tempCrop.y * scaleY,
-                   width: tempCrop.width * scaleX,
-                   height: tempCrop.height * scaleY
-               });
-          }
+      if (tempCrop && tempCrop.width > 10 && tempCrop.height > 10 && overlayCanvasRef.current) {
+           const canvas = overlayCanvasRef.current;
+           // Calculate the scale factor between the displayed size and actual canvas (video) size
+           // Because object-contain might scale the video down
+           
+           // Wait, overlayCanvasRef is drawn with ctx.drawImage(video, 0, 0)
+           // so its internal resolution is video resolution.
+           // But it's displayed with CSS 'object-contain'.
+           
+           // We need to calculate the actual position of the image within the canvas element
+           // Or simpler: We force the canvas to fill the container and draw the image scaled?
+           // No, easier way:
+           // Get the displayed rect of the canvas
+           const rect = canvas.getBoundingClientRect();
+           
+           // The canvas element fills the container (w-full h-full).
+           // But the image inside is 'object-contain'.
+           // This makes coordinate mapping complex because we don't know the empty margins.
+           
+           // FIX: Let's calculate the "fitted" dimensions manually
+           const videoRatio = canvas.width / canvas.height;
+           const containerRatio = rect.width / rect.height;
+           
+           let displayWidth, displayHeight, offsetX, offsetY;
+           
+           if (containerRatio > videoRatio) {
+               // Container is wider than video -> Video is full height, centered horizontally
+               displayHeight = rect.height;
+               displayWidth = displayHeight * videoRatio;
+               offsetY = 0;
+               offsetX = (rect.width - displayWidth) / 2;
+           } else {
+               // Container is taller -> Video is full width, centered vertically
+               displayWidth = rect.width;
+               displayHeight = displayWidth / videoRatio;
+               offsetX = 0;
+               offsetY = (rect.height - displayHeight) / 2;
+           }
+           
+           // Convert mouse coordinates (tempCrop) relative to the image
+           const imageX = tempCrop.x - offsetX;
+           const imageY = tempCrop.y - offsetY;
+           
+           // Scale to original video resolution
+           const scale = canvas.width / displayWidth;
+           
+           setCropBox({
+               x: Math.max(0, imageX * scale),
+               y: Math.max(0, imageY * scale),
+               width: tempCrop.width * scale,
+               height: tempCrop.height * scale
+           });
       }
       setShowCropOverlay(false);
    };
@@ -573,27 +619,35 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
 
         {/* Crop Overlay */}
         {showCropOverlay && (
-            <div className="absolute inset-0 z-50 bg-black/50 cursor-crosshair flex items-center justify-center">
-                <canvas 
-                    ref={overlayCanvasRef}
-                    className="max-w-full max-h-full object-contain"
-                    onMouseDown={handleOverlayMouseDown}
-                    onMouseMove={handleOverlayMouseMove}
-                    onMouseUp={handleOverlayMouseUp}
-                />
-                {tempCrop && (
-                    <div 
-                        className="absolute border-2 border-red-500 bg-red-500/20 pointer-events-none"
-                        style={{
-                            left: overlayCanvasRef.current?.getBoundingClientRect().left! + tempCrop.x,
-                            top: overlayCanvasRef.current?.getBoundingClientRect().top! + tempCrop.y,
-                            width: tempCrop.width,
-                            height: tempCrop.height
-                        }}
+            <div 
+                className="absolute inset-0 z-50 bg-black/50 cursor-crosshair flex items-center justify-center select-none"
+                onMouseDown={handleOverlayMouseDown}
+                onMouseMove={handleOverlayMouseMove}
+                onMouseUp={handleOverlayMouseUp}
+            >
+                <div className="relative w-full h-full">
+                    {/* Background Canvas (Video Frame) */}
+                    <canvas 
+                        ref={overlayCanvasRef}
+                        className="w-full h-full object-contain pointer-events-none"
                     />
-                )}
-                 <div className="absolute top-4 bg-black/80 text-white px-4 py-2 rounded-md">
-                    Click and drag to select area. Release to confirm.
+                    
+                    {/* Selection Box */}
+                    {tempCrop && (
+                        <div 
+                            className="absolute border-2 border-red-500 bg-red-500/20 pointer-events-none"
+                            style={{
+                                left: tempCrop.x,
+                                top: tempCrop.y,
+                                width: tempCrop.width,
+                                height: tempCrop.height
+                            }}
+                        />
+                    )}
+                    
+                    <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/80 text-white px-4 py-2 rounded-md pointer-events-none">
+                        Click and drag to select area. Release to confirm.
+                    </div>
                 </div>
             </div>
         )}
