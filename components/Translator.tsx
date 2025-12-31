@@ -95,6 +95,17 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
     }
   };
 
+  const handleAutoCaptureToggle = () => {
+    const newState = !autoCapture;
+    setAutoCapture(newState);
+    
+    if (newState) {
+        // Trigger initial PiP immediately when enabling Auto mode
+        // We use a dummy text first to open the window
+        updatePiPWindow("Waiting for translation...");
+    }
+  };
+
   const stopScreenShare = () => {
     setAutoCapture(false);
     if (intervalRef.current) {
@@ -194,69 +205,6 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
   // Ref to hold persistent PiP canvas
   const pipCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  const renderToPiP = (text: string) => {
-      if (!pipCanvasRef.current) {
-          pipCanvasRef.current = document.createElement('canvas');
-          pipCanvasRef.current.width = 600;
-          pipCanvasRef.current.height = 300;
-      }
-      
-      const canvas = pipCanvasRef.current;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-
-      // Clear and Draw
-      ctx.fillStyle = '#0f172a'; // Dark background
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      
-      // Draw Header
-      ctx.fillStyle = '#3b82f6';
-      ctx.fillRect(0, 0, canvas.width, 40);
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 20px sans-serif';
-      ctx.fillText('AI Translate - Live', 20, 28);
-
-      // Draw Translated Text
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '24px sans-serif';
-      
-      const words = text.split(''); // Char split for Chinese, or space for English... simple logic:
-      // Let's just draw char by char for simplicity or use simple wrapping
-      let x = 20;
-      let y = 80;
-      const maxWidth = 560;
-      const lineHeight = 36;
-      
-      // Rough wrapping
-      let currentLine = '';
-      for (let i = 0; i < text.length; i++) {
-          currentLine += text[i];
-          if (ctx.measureText(currentLine).width > maxWidth) {
-              ctx.fillText(currentLine.slice(0, -1), x, y);
-              currentLine = text[i];
-              y += lineHeight;
-          }
-      }
-      ctx.fillText(currentLine, x, y);
-
-      // Init Video/PiP if needed
-      if (!pipVideoRef.current) {
-        const video = document.createElement('video');
-        video.muted = true;
-        video.autoplay = true;
-        // Hidden video element
-        video.style.cssText = 'position:fixed; top:0; left:0; width:1px; height:1px; opacity:0; pointer-events:none; z-index:-1;';
-        document.body.appendChild(video);
-        pipVideoRef.current = video;
-        
-        const stream = canvas.captureStream(10); // 10 FPS is enough for text
-        video.srcObject = stream;
-        video.play().then(() => {
-            video.requestPictureInPicture().catch(console.error);
-        });
-      }
-  };
-
   const captureScreenAndTranslate = (silent = false) => {
     if (!videoRef.current || !canvasRef.current || !isScreenSharing) return;
 
@@ -328,7 +276,7 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
         
         // Update PiP window if active
         if (autoCapture) {
-            renderToPiP(translated);
+            updatePiPWindow(translated);
         }
       }
     } catch (error) {
@@ -525,7 +473,7 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
               ) : (
                 <div className="flex items-center gap-1">
                    <button
-                    onClick={() => setAutoCapture(!autoCapture)}
+                    onClick={handleAutoCaptureToggle}
                     className={clsx(
                         "px-3 py-1 rounded-md text-xs font-bold transition-all border",
                         autoCapture 
