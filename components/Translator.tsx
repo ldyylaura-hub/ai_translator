@@ -663,19 +663,61 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         )}
 
         {/* Source Panel */}
-        <div className="flex flex-col h-full relative bg-transparent overflow-hidden">
+        <div className="flex flex-col h-full relative bg-transparent overflow-hidden border-r border-white/10">
           <div className="flex-1 relative min-h-0">
             <textarea
-                className="absolute inset-0 w-full h-full p-6 resize-none outline-none text-lg text-gray-900 placeholder-gray-600 bg-transparent overflow-y-auto"
+                className="absolute inset-0 w-full h-full p-6 resize-none outline-none text-base text-gray-900 placeholder-gray-600 bg-transparent overflow-y-auto"
                 placeholder="Enter text to translate..."
                 value={sourceText}
                 onChange={handleTextChange}
             />
           </div>
-          
-          <div className="shrink-0 px-6 py-3 bg-white/40 backdrop-blur-md border-t border-white/20 flex flex-wrap justify-between items-center gap-y-2 z-20">
-            <div className="text-xs text-gray-600 font-medium">{sourceText.length} chars</div>
-            <div className="flex flex-wrap gap-2 justify-end">
+        </div>
+
+        {/* Target Panel */}
+        <div className="p-6 flex flex-col bg-transparent h-full overflow-hidden">
+          <div className="flex-1 w-full text-base text-gray-900 whitespace-pre-wrap overflow-y-auto min-h-0">
+            {targetText || <span className="text-gray-600">Translation will appear here...</span>}
+          </div>
+
+          <div className="mt-4 flex justify-between items-center border-t border-white/10 pt-4 shrink-0">
+            <div className="flex items-center gap-2">
+               <select 
+                value={voiceType} 
+                onChange={(e) => setVoiceType(Number(e.target.value))}
+                className="text-sm border-none bg-transparent text-gray-800 focus:ring-0 cursor-pointer hover:text-blue-600"
+              >
+                {VOICES.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+              </select>
+            </div>
+            
+            <button 
+              onClick={handleTTS}
+              disabled={loadingTTS || !targetText}
+              className="text-gray-500 hover:text-blue-600 p-2 rounded-md hover:bg-blue-50 transition-colors flex items-center gap-2"
+              title="Listen"
+            >
+              {loadingTTS ? <Loader2 className="w-5 h-5 animate-spin" /> : <Volume2 className="w-5 h-5" />}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Bottom Toolbar (Separated) */}
+      <div className="px-6 py-4 bg-white/40 backdrop-blur-md border-t border-white/20 flex flex-wrap justify-between items-center gap-y-2">
+            <div className="text-xs text-gray-600 font-medium flex items-center gap-2">
+                <span>{sourceText.length} chars</span>
+                {sourceText && (
+                <button 
+                  onClick={() => setSourceText('')}
+                  className="text-gray-500 hover:text-red-600 p-1 rounded-md hover:bg-red-50 transition-colors"
+                  title="Clear Text"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2 justify-end items-center">
               <input 
                 type="file" 
                 ref={fileInputRef} 
@@ -684,22 +726,33 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
                 onChange={handleFileUpload}
               />
               
+              <button 
+                onClick={() => fileInputRef.current?.click()}
+                disabled={loadingOCR}
+                className="text-gray-500 hover:text-blue-600 p-2 rounded-md hover:bg-blue-50 transition-colors tooltip flex items-center gap-1"
+                title="Upload Image (OCR)"
+              >
+                {loadingOCR ? <Loader2 className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />}
+                <span className="text-xs font-bold">UPLOAD</span>
+              </button>
+
               {/* Screen Share Controls */}
               {!isScreenSharing ? (
                 <button
                   onClick={startScreenShare}
-                  className="text-gray-500 hover:text-blue-600 p-2 rounded-md hover:bg-blue-50 transition-colors tooltip"
+                  className="text-gray-500 hover:text-blue-600 p-2 rounded-md hover:bg-blue-50 transition-colors tooltip flex items-center gap-1"
                   title="Start Screen Translate"
                 >
                   <MonitorPlay className="w-5 h-5" />
+                  <span className="text-xs font-bold">SCREEN</span>
                 </button>
               ) : (
-                <div className="flex flex-wrap items-center gap-1 justify-end">
+                <div className="flex flex-wrap items-center gap-2 justify-end">
                    {/* Crop Button */}
                    <button
                     onClick={startCropSelection}
                     className={clsx(
-                        "px-3 py-1 rounded-md text-xs font-bold transition-all border whitespace-nowrap",
+                        "px-3 py-1.5 rounded-md text-xs font-bold transition-all border whitespace-nowrap flex items-center gap-1",
                         cropBox 
                             ? "text-white bg-blue-500 border-blue-600" 
                             : "text-gray-600 bg-gray-100 border-gray-300 hover:bg-gray-200"
@@ -712,7 +765,7 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
                   {cropBox && (
                       <button
                         onClick={() => setCropBox(null)}
-                        className="text-gray-500 hover:text-red-600 px-2 py-1 rounded-md text-xs font-bold border border-gray-200 hover:bg-red-50"
+                        className="text-gray-500 hover:text-red-600 px-2 py-1.5 rounded-md text-xs font-bold border border-gray-200 hover:bg-red-50"
                         title="Clear Crop"
                       >
                         RESET
@@ -722,7 +775,7 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
                    <button
                     onClick={handleAutoCaptureToggle}
                     className={clsx(
-                        "px-3 py-1 rounded-md text-xs font-bold transition-all border whitespace-nowrap",
+                        "px-3 py-1.5 rounded-md text-xs font-bold transition-all border whitespace-nowrap flex items-center gap-1",
                         autoCapture 
                             ? "text-white bg-green-500 border-green-600 animate-pulse" 
                             : "text-gray-600 bg-gray-100 border-gray-300 hover:bg-gray-200"
@@ -733,7 +786,7 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
                   </button>
                    <button
                     onClick={handleManualScan}
-                    className="text-white bg-red-500 hover:bg-red-600 px-3 py-1 rounded-md text-xs font-bold whitespace-nowrap"
+                    className="text-white bg-red-500 hover:bg-red-600 px-3 py-1.5 rounded-md text-xs font-bold whitespace-nowrap"
                     title="Capture & Translate Now"
                   >
                     SCAN
@@ -744,8 +797,8 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
                       <button
                         onClick={() => setShowPipSettings(!showPipSettings)}
                         className={clsx(
-                            "p-2 rounded-md transition-colors",
-                            showPipSettings ? "bg-gray-200 text-gray-800" : "text-gray-500 hover:bg-gray-100"
+                            "p-1.5 rounded-md transition-colors border border-transparent",
+                            showPipSettings ? "bg-gray-200 text-gray-800" : "text-gray-500 hover:bg-gray-100 hover:border-gray-200"
                         )}
                         title="PiP Window Settings"
                       >
@@ -848,55 +901,7 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
                   </button>
                 </div>
               )}
-
-              <button 
-                onClick={() => fileInputRef.current?.click()}
-                disabled={loadingOCR}
-                className="text-gray-500 hover:text-blue-600 p-2 rounded-md hover:bg-blue-50 transition-colors tooltip"
-                title="Upload Image (OCR)"
-              >
-                {loadingOCR ? <Loader2 className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />}
-              </button>
-              {sourceText && (
-                <button 
-                  onClick={() => setSourceText('')}
-                  className="text-gray-500 hover:text-red-600 p-2 rounded-md hover:bg-red-50 transition-colors"
-                  title="Clear"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              )}
             </div>
-          </div>
-        </div>
-
-        {/* Target Panel */}
-        <div className="p-6 flex flex-col bg-transparent">
-          <div className="flex-1 w-full text-lg text-gray-900 whitespace-pre-wrap overflow-y-auto">
-            {targetText || <span className="text-gray-600">Translation will appear here...</span>}
-          </div>
-
-          <div className="mt-4 flex justify-between items-center border-t border-white/10 pt-4">
-            <div className="flex items-center gap-2">
-               <select 
-                value={voiceType} 
-                onChange={(e) => setVoiceType(Number(e.target.value))}
-                className="text-sm border-none bg-transparent text-gray-800 focus:ring-0 cursor-pointer hover:text-blue-600"
-              >
-                {VOICES.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-              </select>
-            </div>
-            
-            <button 
-              onClick={handleTTS}
-              disabled={loadingTTS || !targetText}
-              className="text-gray-500 hover:text-blue-600 p-2 rounded-md hover:bg-blue-50 transition-colors flex items-center gap-2"
-              title="Listen"
-            >
-              {loadingTTS ? <Loader2 className="w-5 h-5 animate-spin" /> : <Volume2 className="w-5 h-5" />}
-            </button>
-          </div>
-        </div>
       </div>
     </div>
   );
