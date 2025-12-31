@@ -273,17 +273,26 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
   const [pipFontSize, setPipFontSize] = useState(20); // Default font size 20px
   const [showPipSettings, setShowPipSettings] = useState(false);
 
-  const updatePiPWindow = (text: string) => {
+  const updatePiPWindow = (text: string, options?: { width?: number, height?: number, fontSize?: number }) => {
     // Use the persistent canvas ref
     if (!pipCanvasRef.current) {
         pipCanvasRef.current = document.createElement('canvas');
     }
     const pipCanvas = pipCanvasRef.current;
     
+    // Use provided options or fallback to state (or current canvas dimensions if state is stale in closure)
+    // Actually, we should use the passed options if available, otherwise current state.
+    // BUT since this function is a closure, 'pipWidth' might be old.
+    // So we rely on options for immediate updates during slider drag.
+    
+    const w = options?.width ?? pipWidth;
+    const h = options?.height ?? pipHeight;
+    const fs = options?.fontSize ?? pipFontSize;
+
     // Update dimensions if changed
-    if (pipCanvas.width !== pipWidth || pipCanvas.height !== pipHeight) {
-        pipCanvas.width = pipWidth;
-        pipCanvas.height = pipHeight;
+    if (pipCanvas.width !== w || pipCanvas.height !== h) {
+        pipCanvas.width = w;
+        pipCanvas.height = h;
     }
     
     const ctx = pipCanvas.getContext('2d');
@@ -296,15 +305,15 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
     // Draw Text
     ctx.fillStyle = '#ffffff';
     // Use dynamic font size
-    ctx.font = `500 ${pipFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`; 
+    ctx.font = `500 ${fs}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`; 
     ctx.textBaseline = 'top';
     
     // Smart wrapping based on dynamic width and font size
     const chars = text.split('');
     let line = '';
     let y = 16;
-    const maxWidth = pipWidth - 40; // Dynamic max width with padding
-    const lineHeight = pipFontSize * 1.5; // Dynamic line height (1.5x font size)
+    const maxWidth = w - 40; // Dynamic max width with padding
+    const lineHeight = fs * 1.5; // Dynamic line height (1.5x font size)
     
     for (let i = 0; i < chars.length; i++) {
         const char = chars[i];
@@ -808,23 +817,25 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
                       {/* Settings Popup */}
                       {showPipSettings && (
                           <div className="absolute bottom-full mb-2 right-0 bg-white p-4 rounded-lg shadow-xl border border-gray-200 w-64 z-50">
-                              <h4 className="font-bold text-gray-800 mb-3 text-sm">PiP Window Size</h4>
+                              <h4 className="font-bold text-gray-800 mb-3 text-sm">PiP Window Resolution & Shape</h4>
                               
                               <div className="space-y-3">
                                   <div>
                                       <div className="flex justify-between text-xs text-gray-600 mb-1">
-                                          <span>Width</span>
+                                          <span>Width (Length)</span>
                                           <span>{pipWidth}px</span>
                                       </div>
                                       <input 
                                         type="range" 
                                         min="300" 
-                                        max="1200" 
+                                        max="3840" 
                                         step="10"
                                         value={pipWidth}
                                         onChange={(e) => {
-                                            setPipWidth(Number(e.target.value));
-                                            updatePiPWindow(targetText || "Adjusting size...");
+                                            const val = Number(e.target.value);
+                                            setPipWidth(val);
+                                            // Pass explicit values to avoid stale state in closure
+                                            updatePiPWindow(targetText || "Adjusting size...", { width: val });
                                         }}
                                         className="w-full"
                                       />
@@ -838,12 +849,13 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
                                       <input 
                                         type="range" 
                                         min="100" 
-                                        max="800" 
+                                        max="2160" 
                                         step="10"
                                         value={pipHeight}
                                         onChange={(e) => {
-                                            setPipHeight(Number(e.target.value));
-                                            updatePiPWindow(targetText || "Adjusting size...");
+                                            const val = Number(e.target.value);
+                                            setPipHeight(val);
+                                            updatePiPWindow(targetText || "Adjusting size...", { height: val });
                                         }}
                                         className="w-full"
                                       />
@@ -851,18 +863,19 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
 
                                   <div>
                                       <div className="flex justify-between text-xs text-gray-600 mb-1">
-                                          <span>Font Size</span>
+                                          <span>Font Size (Resolution)</span>
                                           <span>{pipFontSize}px</span>
                                       </div>
                                       <input 
                                         type="range" 
                                         min="12" 
-                                        max="48" 
+                                        max="120" 
                                         step="2"
                                         value={pipFontSize}
                                         onChange={(e) => {
-                                            setPipFontSize(Number(e.target.value));
-                                            updatePiPWindow(targetText || "Adjusting font...");
+                                            const val = Number(e.target.value);
+                                            setPipFontSize(val);
+                                            updatePiPWindow(targetText || "Adjusting font...", { fontSize: val });
                                         }}
                                         className="w-full"
                                       />
