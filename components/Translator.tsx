@@ -272,6 +272,7 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
   const [pipHeight, setPipHeight] = useState(200);
   const [pipFontSize, setPipFontSize] = useState(20); // Default font size 20px
   const [showPipSettings, setShowPipSettings] = useState(false);
+  const [ocrMode, setOcrMode] = useState<'accurate' | 'basic'>('accurate'); // Default to accurate
 
   const updatePiPWindow = (text: string, options?: { width?: number, height?: number, fontSize?: number }) => {
     // Use the persistent canvas ref
@@ -375,6 +376,47 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
   // Ref to hold persistent PiP canvas
   const pipCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
+  // Ref for image comparison to save OCR quota
+  const prevImageRef = useRef<Uint8ClampedArray | null>(null);
+
+  const checkImageSimilarity = (ctx: CanvasRenderingContext2D, width: number, height: number): boolean => {
+      // Downscale for performance and noise tolerance
+      const sampleSize = 32;
+      const smallCanvas = document.createElement('canvas');
+      smallCanvas.width = sampleSize;
+      smallCanvas.height = sampleSize;
+      const smallCtx = smallCanvas.getContext('2d');
+      if (!smallCtx) return false;
+
+      smallCtx.drawImage(ctx.canvas, 0, 0, width, height, 0, 0, sampleSize, sampleSize);
+      const imageData = smallCtx.getImageData(0, 0, sampleSize, sampleSize).data;
+      
+      if (!prevImageRef.current) {
+          prevImageRef.current = imageData;
+          return false; // First frame, always process
+      }
+
+      // Compare with previous
+      let diff = 0;
+      const totalPixels = sampleSize * sampleSize;
+      
+      for (let i = 0; i < imageData.length; i += 4) {
+          // Compare RGB (skip Alpha)
+          diff += Math.abs(imageData[i] - prevImageRef.current[i]);     // R
+          diff += Math.abs(imageData[i+1] - prevImageRef.current[i+1]); // G
+          diff += Math.abs(imageData[i+2] - prevImageRef.current[i+2]); // B
+      }
+      
+      const averageDiff = diff / (totalPixels * 3);
+      
+      // Update previous reference
+      prevImageRef.current = imageData;
+
+      // Threshold: if average pixel difference is less than 5 (out of 255), consider it same
+      // Video noise is usually small.
+      return averageDiff < 5;
+  };
+
   const captureScreenAndTranslate = (silent = false) => {
     if (!videoRef.current || !canvasRef.current || !isScreenSharing) return;
 
@@ -405,6 +447,18 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
             finalCanvas = cropCanvas;
         }
     }
+    
+    // Check for similarity to save quota (Only in Auto Mode)
+    if (silent) { // silent=true implies auto capture loop
+        const finalCtx = finalCanvas.getContext('2d');
+        if (finalCtx) {
+            const isSame = checkImageSimilarity(finalCtx, finalCanvas.width, finalCanvas.height);
+            if (isSame) {
+                console.log("Skipping OCR: Screen content unchanged");
+                return;
+            }
+        }
+    }
 
     const base64String = finalCanvas.toDataURL('image/jpeg');
     
@@ -417,7 +471,10 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
     
     if (!silent) setLoadingOCR(true);
     try {
-      const res = await axios.post('/api/ocr', { imageBase64: base64String });
+      const res = await axios.post('/api/ocr', { 
+          imageBase64: base64String,
+          mode: ocrMode 
+      });
       if (res.data.text) {
         const text = res.data.text;
         
@@ -816,13 +873,44 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
                       
                       {/* Settings Popup */}
                       {showPipSettings && (
-                          <div className="absolute bottom-full mb-2 right-0 bg-white p-4 rounded-lg shadow-xl border border-gray-200 w-64 z-50">
-                              <h4 className="font-bold text-gray-800 mb-3 text-sm">PiP Window Resolution & Shape</h4>
+                          <div className="absolute bottom-full mb-2 right-0 bg-white p-4 rounded-lg shadow-xl border border-gray-200 w-72 z-50">
+                              <h4 className="font-bold text-gray-800 mb-3 text-sm border-b pb-2">Settings</h4>
                               
+                              <div className="mb-4">
+                                  <h5 className="font-bold text-gray-700 mb-2 text-xs">OCR Precision (Cost)</h5>
+                                  <div className="flex gap-2">
+                                      <button
+                                        onClick={() => setOcrMode('accurate')}
+                                        className={clsx(
+                                            "flex-1 py-1.5 px-2 rounded-md text-xs font-medium border transition-colors",
+                                            ocrMode === 'accurate' 
+                                                ? "bg-blue-50 border-blue-500 text-blue-700" 
+                                                : "bg-white border-gray-300 text-gray-600 hover:bg-gray-50"
+                                        )}
+                                      >
+                                          High Precision
+                                          <div className="text-[10px] opacity-70">More accurate, $$</div>
+                                      </button>
+                                      <button
+                                        onClick={() => setOcrMode('basic')}
+                                        className={clsx(
+                                            "flex-1 py-1.5 px-2 rounded-md text-xs font-medium border transition-colors",
+                                            ocrMode === 'basic' 
+                                                ? "bg-green-50 border-green-500 text-green-700" 
+                                                : "bg-white border-gray-300 text-gray-600 hover:bg-gray-50"
+                                        )}
+                                      >
+                                          Standard
+                                          <div className="text-[10px] opacity-70">Faster, cheaper</div>
+                                      </button>
+                                  </div>
+                              </div>
+
+                              <h5 className="font-bold text-gray-700 mb-2 text-xs">PiP Window</h5>
                               <div className="space-y-3">
                                   <div>
                                       <div className="flex justify-between text-xs text-gray-600 mb-1">
-                                          <span>Width (Length)</span>
+                                          <span>Width</span>
                                           <span>{pipWidth}px</span>
                                       </div>
                                       <input 
