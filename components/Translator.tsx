@@ -100,10 +100,13 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
     setAutoCapture(newState);
     
     if (newState) {
-        // Trigger initial PiP immediately when enabling Auto mode
-        // We use a dummy text first to open the window
         updatePiPWindow("Waiting for translation...");
     }
+  };
+
+  const handleManualScan = () => {
+      updatePiPWindow("Scanning...");
+      captureScreenAndTranslate(false);
   };
 
   const stopScreenShare = () => {
@@ -128,10 +131,13 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
   };
 
   const updatePiPWindow = (text: string) => {
-    // We use a separate canvas for PiP to render clean text
-    const pipCanvas = document.createElement('canvas');
-    pipCanvas.width = 600;
-    pipCanvas.height = 200;
+    // Use the persistent canvas ref
+    if (!pipCanvasRef.current) {
+        pipCanvasRef.current = document.createElement('canvas');
+        pipCanvasRef.current.width = 600;
+        pipCanvasRef.current.height = 200;
+    }
+    const pipCanvas = pipCanvasRef.current;
     const ctx = pipCanvas.getContext('2d');
     if (!ctx) return;
 
@@ -143,11 +149,6 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 24px sans-serif';
     ctx.textBaseline = 'top';
-    
-    // Auto-resize canvas height based on text length?
-    // We can't resize canvas of a live stream easily without glitch.
-    // Better to just have a taller canvas or scroll.
-    // For now, let's just clear and redraw.
     
     // Smart wrapping handling both CJK and English
     const chars = text.split('');
@@ -166,11 +167,7 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
             line = char;
             y += lineHeight;
             
-            // If text exceeds canvas height, we should probably clear and show only latest?
-            // Or just fade out. 
-            // Let's just stop drawing if it overflows for now to prevent messy overlap.
             if (y > pipCanvas.height - lineHeight) {
-                // Draw ellipsis
                 ctx.fillText("...", 20, y);
                 break;
             }
@@ -178,7 +175,6 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
             line = testLine;
         }
     }
-    // Draw last line if we didn't break early
     if (y <= pipCanvas.height - lineHeight) {
         ctx.fillText(line, 20, y);
     }
@@ -199,11 +195,8 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
         pipVideoRef.current = video;
     }
 
-    // Update stream only if not already playing from this canvas
-    // Actually we need to capture stream once and then keep drawing on canvas
-    // But canvas.captureStream() returns a live stream.
-    // So we just need to init it once.
-    if (pipVideoRef.current.srcObject === null) {
+    // Initialize stream only ONCE using the SAME canvas
+    if (!pipVideoRef.current.srcObject) {
         const stream = pipCanvas.captureStream();
         pipVideoRef.current.srcObject = stream;
         
@@ -212,11 +205,6 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
             // Enter PiP
             pipVideoRef.current?.requestPictureInPicture().catch(e => console.error("PiP Error", e));
         };
-    } else {
-        // If stream is already active, we just need to ensure the canvas we are drawing to 
-        // is the one backing the stream.
-        // Wait, creating a new canvas every time breaks the stream reference.
-        // We must reuse the canvas.
     }
   };
   
@@ -239,6 +227,7 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
     const base64String = canvas.toDataURL('image/jpeg');
     
     // Call existing OCR logic
+    // Add true for silent mode if it's auto capture
     processOCR(base64String, silent);
   };
 
@@ -274,6 +263,10 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
       }
     } catch (error: any) {
       console.error('OCR failed', error);
+      if (!silent) {
+         // Only show alert if manual scan
+         // alert('OCR failed: ' + (error.response?.data?.error || error.message));
+      }
     } finally {
       if (!silent) setLoadingOCR(false);
     }
@@ -295,6 +288,9 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
         // Update PiP window if active
         if (autoCapture) {
             updatePiPWindow(translated);
+        } else if (document.pictureInPictureElement) {
+             // Even if not auto capture, if PiP is open (e.g. from previous manual scan), update it
+             updatePiPWindow(translated);
         }
       }
     } catch (error) {
@@ -460,15 +456,15 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         <canvas ref={canvasRef} className="hidden" />
 
         {/* Source Panel */}
-        <div className="p-6 flex flex-col relative bg-transparent">
+        <div className="p-6 flex flex-col relative bg-transparent overflow-hidden">
           <textarea
-            className="flex-1 w-full resize-none outline-none text-lg text-gray-900 placeholder-gray-600 bg-transparent"
+            className="flex-1 w-full resize-none outline-none text-lg text-gray-900 placeholder-gray-600 bg-transparent min-h-0"
             placeholder="Enter text to translate..."
             value={sourceText}
             onChange={handleTextChange}
           />
           
-          <div className="mt-4 flex justify-between items-center">
+          <div className="mt-4 flex justify-between items-center shrink-0">
             <div className="text-xs text-gray-400">{sourceText.length} chars</div>
             <div className="flex gap-2">
               <input 
@@ -503,7 +499,7 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
                     {autoCapture ? "LIVE" : "AUTO"}
                   </button>
                    <button
-                    onClick={() => captureScreenAndTranslate(false)}
+                    onClick={handleManualScan}
                     className="text-white bg-red-500 hover:bg-red-600 px-3 py-1 rounded-md text-xs font-bold"
                     title="Capture & Translate Now"
                   >
