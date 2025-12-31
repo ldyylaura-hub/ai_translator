@@ -243,11 +243,37 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         }
       }
     } catch (error: any) {
-      console.error('TTS failed', error);
-      const msg = error.response?.data?.error || 'TTS failed. Please check your network or API keys.';
-      alert(msg);
+      console.error('TTS API failed, switching to browser TTS', error);
+      // Fallback to browser native TTS (Free)
+      speakWithBrowser(targetText);
     } finally {
       setLoadingTTS(false);
+    }
+  };
+
+  const speakWithBrowser = (text: string) => {
+    if ('speechSynthesis' in window) {
+      // Cancel any ongoing speech
+      window.speechSynthesis.cancel();
+
+      const utterance = new SpeechSynthesisUtterance(text);
+      
+      // Map our language codes to browser locales
+      const langMap: Record<string, string> = {
+        'zh': 'zh-CN',
+        'en': 'en-US',
+        'ja': 'ja-JP',
+        'ko': 'ko-KR',
+        'fr': 'fr-FR',
+        'es': 'es-ES',
+        'de': 'de-DE',
+        'ru': 'ru-RU'
+      };
+      
+      utterance.lang = langMap[targetLang] || 'en-US';
+      window.speechSynthesis.speak(utterance);
+    } else {
+      alert('Your browser does not support text-to-speech.');
     }
   };
 
