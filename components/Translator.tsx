@@ -41,11 +41,35 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
+  const [autoCapture, setAutoCapture] = useState(false);
+  const pipVideoRef = useRef<HTMLVideoElement | null>(null);
+
   useEffect(() => {
     return () => {
       stopScreenShare();
+      if (pipVideoRef.current) {
+        pipVideoRef.current.remove();
+      }
     };
   }, []);
+
+  // Effect to handle Auto Capture Loop
+  useEffect(() => {
+    if (isScreenSharing && autoCapture) {
+        // Interval: 2 seconds
+        intervalRef.current = setInterval(() => {
+            captureScreenAndTranslate(true); // true = silent mode (no loading spinners to avoid UI flicker)
+        }, 2000);
+    } else {
+        if (intervalRef.current) {
+            clearInterval(intervalRef.current);
+            intervalRef.current = null;
+        }
+    }
+    return () => {
+        if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [isScreenSharing, autoCapture]);
 
   const startScreenShare = async () => {
     try {
@@ -72,6 +96,7 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
   };
 
   const stopScreenShare = () => {
+    setAutoCapture(false);
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
@@ -82,10 +107,157 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
       tracks.forEach(track => track.stop());
       videoRef.current.srcObject = null;
     }
+    
+    // Close PiP if active
+    if (document.pictureInPictureElement) {
+        document.exitPictureInPicture();
+    }
+    
     setIsScreenSharing(false);
   };
 
-  const captureScreenAndTranslate = () => {
+  const updatePiPWindow = (text: string) => {
+    // We use a separate canvas for PiP to render clean text
+    const pipCanvas = document.createElement('canvas');
+    pipCanvas.width = 600;
+    pipCanvas.height = 200;
+    const ctx = pipCanvas.getContext('2d');
+    if (!ctx) return;
+
+    // Draw Background
+    ctx.fillStyle = '#1e293b'; // Slate-800
+    ctx.fillRect(0, 0, pipCanvas.width, pipCanvas.height);
+
+    // Draw Text
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 24px sans-serif';
+    ctx.textBaseline = 'top';
+    
+    // Simple text wrapping
+    const words = text.split(' ');
+    let line = '';
+    let y = 20;
+    const maxWidth = 560;
+    const lineHeight = 32;
+
+    for (let n = 0; n < words.length; n++) {
+      const testLine = line + words[n] + ' ';
+      const metrics = ctx.measureText(testLine);
+      const testWidth = metrics.width;
+      if (testWidth > maxWidth && n > 0) {
+        ctx.fillText(line, 20, y);
+        line = words[n] + ' ';
+        y += lineHeight;
+      } else {
+        line = testLine;
+      }
+    }
+    ctx.fillText(line, 20, y);
+
+    // If PiP video element doesn't exist, create it
+    if (!pipVideoRef.current) {
+        const video = document.createElement('video');
+        video.muted = true;
+        video.autoplay = true;
+        video.style.position = 'fixed';
+        video.style.bottom = '0';
+        video.style.right = '0';
+        video.style.width = '1px';
+        video.style.height = '1px';
+        video.style.pointerEvents = 'none';
+        video.style.opacity = '0'; // Hide it visually from page
+        document.body.appendChild(video);
+        pipVideoRef.current = video;
+    }
+
+    // Update stream only if not already playing from this canvas
+    // Actually we need to capture stream once and then keep drawing on canvas
+    // But canvas.captureStream() returns a live stream.
+    // So we just need to init it once.
+    if (pipVideoRef.current.srcObject === null) {
+        const stream = pipCanvas.captureStream();
+        pipVideoRef.current.srcObject = stream;
+        
+        pipVideoRef.current.onloadedmetadata = () => {
+            pipVideoRef.current?.play();
+            // Enter PiP
+            pipVideoRef.current?.requestPictureInPicture().catch(e => console.error("PiP Error", e));
+        };
+    } else {
+        // If stream is already active, we just need to ensure the canvas we are drawing to 
+        // is the one backing the stream.
+        // Wait, creating a new canvas every time breaks the stream reference.
+        // We must reuse the canvas.
+    }
+  };
+  
+  // Ref to hold persistent PiP canvas
+  const pipCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  const renderToPiP = (text: string) => {
+      if (!pipCanvasRef.current) {
+          pipCanvasRef.current = document.createElement('canvas');
+          pipCanvasRef.current.width = 600;
+          pipCanvasRef.current.height = 300;
+      }
+      
+      const canvas = pipCanvasRef.current;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      // Clear and Draw
+      ctx.fillStyle = '#0f172a'; // Dark background
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      
+      // Draw Header
+      ctx.fillStyle = '#3b82f6';
+      ctx.fillRect(0, 0, canvas.width, 40);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 20px sans-serif';
+      ctx.fillText('AI Translate - Live', 20, 28);
+
+      // Draw Translated Text
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '24px sans-serif';
+      
+      const words = text.split(''); // Char split for Chinese, or space for English... simple logic:
+      // Let's just draw char by char for simplicity or use simple wrapping
+      let x = 20;
+      let y = 80;
+      const maxWidth = 560;
+      const lineHeight = 36;
+      
+      // Rough wrapping
+      let currentLine = '';
+      for (let i = 0; i < text.length; i++) {
+          currentLine += text[i];
+          if (ctx.measureText(currentLine).width > maxWidth) {
+              ctx.fillText(currentLine.slice(0, -1), x, y);
+              currentLine = text[i];
+              y += lineHeight;
+          }
+      }
+      ctx.fillText(currentLine, x, y);
+
+      // Init Video/PiP if needed
+      if (!pipVideoRef.current) {
+        const video = document.createElement('video');
+        video.muted = true;
+        video.autoplay = true;
+        // Hidden video element
+        video.style.cssText = 'position:fixed; top:0; left:0; width:1px; height:1px; opacity:0; pointer-events:none; z-index:-1;';
+        document.body.appendChild(video);
+        pipVideoRef.current = video;
+        
+        const stream = canvas.captureStream(10); // 10 FPS is enough for text
+        video.srcObject = stream;
+        video.play().then(() => {
+            video.requestPictureInPicture().catch(console.error);
+        });
+      }
+  };
+
+  const captureScreenAndTranslate = (silent = false) => {
     if (!videoRef.current || !canvasRef.current || !isScreenSharing) return;
 
     const video = videoRef.current;
@@ -101,49 +273,48 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
     const base64String = canvas.toDataURL('image/jpeg');
     
     // Call existing OCR logic
-    processOCR(base64String);
+    processOCR(base64String, silent);
   };
 
-  const processOCR = async (base64String: string) => {
+  const processOCR = async (base64String: string, silent = false) => {
     if (loadingOCR) return; // Prevent overlapping requests
     
-    setLoadingOCR(true);
+    if (!silent) setLoadingOCR(true);
     try {
       const res = await axios.post('/api/ocr', { imageBase64: base64String });
       if (res.data.text) {
         const text = res.data.text;
-        setSourceText(text);
         
-        // Trigger translation manually since setSourceText is async and we want immediate translation
-        // But better let the useEffect or handleTextChange logic handle language detection?
-        // Let's reuse the auto-detect logic here
-        if (sourceLang === 'auto') {
-           const hasChinese = /[\u4e00-\u9fa5]/.test(text);
-           const hasJapaneseOrKorean = /[\u3040-\u30ff\u31f0-\u31ff\uac00-\ud7af]/.test(text);
-     
-           let newTargetLang = targetLang;
-           if (hasChinese && !hasJapaneseOrKorean) {
-             newTargetLang = 'en';
-           } else if (hasJapaneseOrKorean || /[a-zA-Z]/.test(text)) {
-             newTargetLang = 'zh';
-           }
-           setTargetLang(newTargetLang);
-           
-           // Perform translation
-           await performTranslation(text, sourceLang, newTargetLang);
-        } else {
-           await performTranslation(text, sourceLang, targetLang);
+        // Only update if text is different to avoid jitter?
+        // Ideally yes, but for now let's just update.
+        if (text !== sourceText) {
+             setSourceText(text);
+             // Auto translate logic...
+             if (sourceLang === 'auto') {
+               // ... (existing detection logic)
+               const hasChinese = /[\u4e00-\u9fa5]/.test(text);
+               const hasJapaneseOrKorean = /[\u3040-\u30ff\u31f0-\u31ff\uac00-\ud7af]/.test(text);
+               let newTargetLang = targetLang;
+               if (hasChinese && !hasJapaneseOrKorean) newTargetLang = 'en';
+               else if (hasJapaneseOrKorean || /[a-zA-Z]/.test(text)) newTargetLang = 'zh';
+               
+               if (newTargetLang !== targetLang) setTargetLang(newTargetLang);
+               
+               await performTranslation(text, sourceLang, newTargetLang, silent);
+            } else {
+               await performTranslation(text, sourceLang, targetLang, silent);
+            }
         }
       }
     } catch (error: any) {
       console.error('OCR failed', error);
     } finally {
-      setLoadingOCR(false);
+      if (!silent) setLoadingOCR(false);
     }
   };
 
-  const performTranslation = async (text: string, sLang: string, tLang: string) => {
-    setLoadingTranslate(true);
+  const performTranslation = async (text: string, sLang: string, tLang: string, silent = false) => {
+    if (!silent) setLoadingTranslate(true);
     try {
       const res = await axios.post('/api/translate', {
         text: text,
@@ -151,13 +322,19 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
         targetLang: tLang,
       });
       if (res.data.translatedText) {
-        setTargetText(res.data.translatedText);
+        const translated = res.data.translatedText;
+        setTargetText(translated);
         if (onTranslationComplete) onTranslationComplete();
+        
+        // Update PiP window if active
+        if (autoCapture) {
+            renderToPiP(translated);
+        }
       }
     } catch (error) {
        console.error('Translation failed', error);
     } finally {
-      setLoadingTranslate(false);
+      if (!silent) setLoadingTranslate(false);
     }
   };
 
@@ -348,8 +525,20 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
               ) : (
                 <div className="flex items-center gap-1">
                    <button
-                    onClick={captureScreenAndTranslate}
-                    className="text-white bg-red-500 hover:bg-red-600 px-3 py-1 rounded-md text-xs font-bold animate-pulse"
+                    onClick={() => setAutoCapture(!autoCapture)}
+                    className={clsx(
+                        "px-3 py-1 rounded-md text-xs font-bold transition-all border",
+                        autoCapture 
+                            ? "text-white bg-green-500 border-green-600 animate-pulse" 
+                            : "text-gray-600 bg-gray-100 border-gray-300 hover:bg-gray-200"
+                    )}
+                    title={autoCapture ? "Auto Mode ON" : "Enable Auto Mode"}
+                  >
+                    {autoCapture ? "LIVE" : "AUTO"}
+                  </button>
+                   <button
+                    onClick={() => captureScreenAndTranslate(false)}
+                    className="text-white bg-red-500 hover:bg-red-600 px-3 py-1 rounded-md text-xs font-bold"
                     title="Capture & Translate Now"
                   >
                     SCAN
