@@ -53,12 +53,101 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
     };
   }, []);
 
+  // State for crop box
+  const [cropBox, setCropBox] = useState<{ x: number, y: number, width: number, height: number } | null>(null);
+  const [isSelecting, setIsSelecting] = useState(false);
+  const selectionStartRef = useRef<{ x: number, y: number } | null>(null);
+
+  // Initialize with default full screen if no selection
+  const getCropRegion = (videoWidth: number, videoHeight: number) => {
+      if (cropBox) {
+          // Map CSS coordinates to Video coordinates
+          // This is tricky because video might be scaled.
+          // For simplicity in this version, we will assume full screen capture first.
+          // Or implementing a proper UI overlay for selection is complex without a preview.
+          
+          // Alternative: Just crop the center or specific ratio?
+          // No, user wants to select.
+          
+          // Let's implement a simple "Preview & Select" modal or overlay?
+          // That might be too complex for now.
+          
+          // Let's implement a "Crop Mode" where we show the video stream on the canvas
+          // and let user drag a box.
+      }
+      return { x: 0, y: 0, width: videoWidth, height: videoHeight };
+  };
+
+  const [showCropOverlay, setShowCropOverlay] = useState(false);
+  const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
+  const [tempCrop, setTempCrop] = useState<{ x: number, y: number, width: number, height: number } | null>(null);
+
+  const startCropSelection = () => {
+      setShowCropOverlay(true);
+      // We need to capture one frame to show as background for selection
+      if (videoRef.current && overlayCanvasRef.current) {
+          const video = videoRef.current;
+          const canvas = overlayCanvasRef.current;
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          const ctx = canvas.getContext('2d');
+          if (ctx) ctx.drawImage(video, 0, 0);
+      }
+  };
+
+  const handleOverlayMouseDown = (e: React.MouseEvent) => {
+      const rect = overlayCanvasRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      selectionStartRef.current = { x, y };
+      setIsSelecting(true);
+      setTempCrop({ x, y, width: 0, height: 0 });
+  };
+
+  const handleOverlayMouseMove = (e: React.MouseEvent) => {
+      if (!isSelecting || !selectionStartRef.current || !overlayCanvasRef.current) return;
+      const rect = overlayCanvasRef.current.getBoundingClientRect();
+      const currentX = e.clientX - rect.left;
+      const currentY = e.clientY - rect.top;
+      
+      const startX = selectionStartRef.current.x;
+      const startY = selectionStartRef.current.y;
+      
+      setTempCrop({
+          x: Math.min(startX, currentX),
+          y: Math.min(startY, currentY),
+          width: Math.abs(currentX - startX),
+          height: Math.abs(currentY - startY)
+      });
+  };
+
+  const handleOverlayMouseUp = () => {
+      setIsSelecting(false);
+      if (tempCrop && tempCrop.width > 10 && tempCrop.height > 10) {
+          // Scale coordinates from CSS pixels to Canvas pixels
+          if (overlayCanvasRef.current) {
+               const rect = overlayCanvasRef.current.getBoundingClientRect();
+               const scaleX = overlayCanvasRef.current.width / rect.width;
+               const scaleY = overlayCanvasRef.current.height / rect.height;
+               
+               setCropBox({
+                   x: tempCrop.x * scaleX,
+                   y: tempCrop.y * scaleY,
+                   width: tempCrop.width * scaleX,
+                   height: tempCrop.height * scaleY
+               });
+          }
+      }
+      setShowCropOverlay(false);
+   };
+
   // Effect to handle Auto Capture Loop
   useEffect(() => {
     if (isScreenSharing && autoCapture) {
         // Interval: 2 seconds
         intervalRef.current = setInterval(() => {
-            captureScreenAndTranslate(true); // true = silent mode (no loading spinners to avoid UI flicker)
+            captureScreenAndTranslate(true); // true = silent mode
         }, 2000);
     } else {
         if (intervalRef.current) {
@@ -130,14 +219,24 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
     setIsScreenSharing(false);
   };
 
+  const [pipWidth, setPipWidth] = useState(600);
+  const [pipHeight, setPipHeight] = useState(200);
+
   const updatePiPWindow = (text: string) => {
     // Use the persistent canvas ref
     if (!pipCanvasRef.current) {
         pipCanvasRef.current = document.createElement('canvas');
-        pipCanvasRef.current.width = 600;
-        pipCanvasRef.current.height = 200;
+        // Default size
+        pipCanvasRef.current.width = pipWidth;
+        pipCanvasRef.current.height = pipHeight;
     }
     const pipCanvas = pipCanvasRef.current;
+    
+    // Resize if needed (check logic later, for now just use fixed or state size)
+    // Actually changing canvas size clears it, so only do it if state changes.
+    // But PiP stream size is fixed at init usually.
+    // Let's stick to fixed internal resolution but high enough quality.
+    
     const ctx = pipCanvas.getContext('2d');
     if (!ctx) return;
 
@@ -223,11 +322,28 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    
+    // Apply Crop if exists
+    let finalCanvas = canvas;
+    if (cropBox) {
+        // Create a temporary canvas for cropped image
+        const cropCanvas = document.createElement('canvas');
+        cropCanvas.width = cropBox.width;
+        cropCanvas.height = cropBox.height;
+        const cropCtx = cropCanvas.getContext('2d');
+        if (cropCtx) {
+            cropCtx.drawImage(
+                canvas, 
+                cropBox.x, cropBox.y, cropBox.width, cropBox.height, 
+                0, 0, cropBox.width, cropBox.height
+            );
+            finalCanvas = cropCanvas;
+        }
+    }
 
-    const base64String = canvas.toDataURL('image/jpeg');
+    const base64String = finalCanvas.toDataURL('image/jpeg');
     
     // Call existing OCR logic
-    // Add true for silent mode if it's auto capture
     processOCR(base64String, silent);
   };
 
@@ -450,10 +566,37 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 h-[500px] divide-y md:divide-y-0 md:divide-x divide-white/10">
+      <div className="grid grid-cols-1 md:grid-cols-2 h-[500px] divide-y md:divide-y-0 md:divide-x divide-white/10 relative">
         {/* Hidden Video/Canvas for Screen Capture */}
         <video ref={videoRef} className="hidden" autoPlay playsInline muted />
         <canvas ref={canvasRef} className="hidden" />
+
+        {/* Crop Overlay */}
+        {showCropOverlay && (
+            <div className="absolute inset-0 z-50 bg-black/50 cursor-crosshair flex items-center justify-center">
+                <canvas 
+                    ref={overlayCanvasRef}
+                    className="max-w-full max-h-full object-contain"
+                    onMouseDown={handleOverlayMouseDown}
+                    onMouseMove={handleOverlayMouseMove}
+                    onMouseUp={handleOverlayMouseUp}
+                />
+                {tempCrop && (
+                    <div 
+                        className="absolute border-2 border-red-500 bg-red-500/20 pointer-events-none"
+                        style={{
+                            left: overlayCanvasRef.current?.getBoundingClientRect().left! + tempCrop.x,
+                            top: overlayCanvasRef.current?.getBoundingClientRect().top! + tempCrop.y,
+                            width: tempCrop.width,
+                            height: tempCrop.height
+                        }}
+                    />
+                )}
+                 <div className="absolute top-4 bg-black/80 text-white px-4 py-2 rounded-md">
+                    Click and drag to select area. Release to confirm.
+                </div>
+            </div>
+        )}
 
         {/* Source Panel */}
         <div className="p-6 flex flex-col relative bg-transparent overflow-hidden">
@@ -486,6 +629,20 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
                 </button>
               ) : (
                 <div className="flex items-center gap-1">
+                   {/* Crop Button */}
+                   <button
+                    onClick={startCropSelection}
+                    className={clsx(
+                        "px-3 py-1 rounded-md text-xs font-bold transition-all border",
+                        cropBox 
+                            ? "text-white bg-blue-500 border-blue-600" 
+                            : "text-gray-600 bg-gray-100 border-gray-300 hover:bg-gray-200"
+                    )}
+                    title="Select Crop Area"
+                  >
+                    CROP
+                  </button>
+
                    <button
                     onClick={handleAutoCaptureToggle}
                     className={clsx(
