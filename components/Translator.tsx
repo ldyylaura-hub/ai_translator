@@ -663,15 +663,15 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         )}
 
         {/* Source Panel */}
-        <div className="p-6 flex flex-col relative bg-transparent overflow-hidden">
+        <div className="p-6 flex flex-col h-full relative bg-transparent overflow-hidden">
           <textarea
-            className="flex-1 w-full resize-none outline-none text-lg text-gray-900 placeholder-gray-600 bg-transparent min-h-0"
+            className="flex-1 w-full resize-none outline-none text-lg text-gray-900 placeholder-gray-600 bg-transparent min-h-0 overflow-y-auto"
             placeholder="Enter text to translate..."
             value={sourceText}
             onChange={handleTextChange}
           />
           
-          <div className="mt-4 flex flex-wrap justify-between items-center gap-y-2 shrink-0">
+          <div className="mt-4 flex flex-wrap justify-between items-center gap-y-2 shrink-0 pt-2 border-t border-white/10">
             <div className="text-xs text-gray-400">{sourceText.length} chars</div>
             <div className="flex flex-wrap gap-2 justify-end">
               <input 
