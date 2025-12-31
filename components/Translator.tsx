@@ -279,23 +279,23 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
   };
 
   return (
-    <div className="bg-white/80 backdrop-blur-md rounded-xl shadow-lg overflow-hidden border border-gray-100/50 transition-colors duration-300">
+    <div className="bg-white/30 backdrop-blur-md rounded-xl shadow-lg overflow-hidden border border-white/20 transition-colors duration-300">
       {/* Controls */}
-      <div className="bg-white/40 backdrop-blur-sm px-6 py-4 border-b border-gray-200/50 flex flex-wrap gap-4 justify-between items-center">
+      <div className="bg-white/20 backdrop-blur-sm px-6 py-4 border-b border-white/10 flex flex-wrap gap-4 justify-between items-center">
         <div className="flex items-center gap-2">
           <select 
             value={sourceLang} 
             onChange={(e) => setSourceLang(e.target.value)}
-            className="border border-gray-200/50 rounded-md px-3 py-1.5 bg-white/40 backdrop-blur-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            className="border border-white/20 rounded-md px-3 py-1.5 bg-white/30 backdrop-blur-sm focus:ring-2 focus:ring-blue-500 outline-none"
           >
             <option value="auto">Auto Detect</option>
             {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.name}</option>)}
           </select>
-          <ArrowRight className="w-4 h-4 text-gray-400" />
+          <ArrowRight className="w-4 h-4 text-gray-600" />
           <select 
             value={targetLang} 
             onChange={(e) => setTargetLang(e.target.value)}
-            className="border border-gray-200/50 rounded-md px-3 py-1.5 bg-white/40 backdrop-blur-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            className="border border-white/20 rounded-md px-3 py-1.5 bg-white/30 backdrop-blur-sm focus:ring-2 focus:ring-blue-500 outline-none"
           >
             {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.name}</option>)}
           </select>
@@ -304,22 +304,22 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         <button 
           onClick={handleTranslate}
           disabled={loadingTranslate || !sourceText}
-          className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 font-medium transition-all shadow-md hover:shadow-lg"
+          className="bg-blue-600/90 hover:bg-blue-600 text-white px-6 py-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 font-medium transition-all shadow-md hover:shadow-lg backdrop-blur-sm"
         >
           {loadingTranslate ? <Loader2 className="w-4 h-4 animate-spin" /> : <Languages className="w-4 h-4" />}
           Translate
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 h-[500px] divide-y md:divide-y-0 md:divide-x divide-gray-200/50">
+      <div className="grid grid-cols-1 md:grid-cols-2 h-[500px] divide-y md:divide-y-0 md:divide-x divide-white/10">
         {/* Hidden Video/Canvas for Screen Capture */}
         <video ref={videoRef} className="hidden" autoPlay playsInline muted />
         <canvas ref={canvasRef} className="hidden" />
 
         {/* Source Panel */}
-        <div className="p-6 flex flex-col relative bg-white/20 backdrop-blur-sm">
+        <div className="p-6 flex flex-col relative bg-transparent">
           <textarea
-            className="flex-1 w-full resize-none outline-none text-lg text-gray-800 placeholder-gray-500 bg-transparent"
+            className="flex-1 w-full resize-none outline-none text-lg text-gray-900 placeholder-gray-600 bg-transparent"
             placeholder="Enter text to translate..."
             value={sourceText}
             onChange={handleTextChange}
@@ -386,17 +386,17 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         </div>
 
         {/* Target Panel */}
-        <div className="p-6 flex flex-col bg-gray-50/20 backdrop-blur-sm">
-          <div className="flex-1 w-full text-lg text-gray-800 whitespace-pre-wrap overflow-y-auto">
-            {targetText || <span className="text-gray-300">Translation will appear here...</span>}
+        <div className="p-6 flex flex-col bg-transparent">
+          <div className="flex-1 w-full text-lg text-gray-900 whitespace-pre-wrap overflow-y-auto">
+            {targetText || <span className="text-gray-600">Translation will appear here...</span>}
           </div>
 
-          <div className="mt-4 flex justify-between items-center border-t border-gray-200 pt-4">
+          <div className="mt-4 flex justify-between items-center border-t border-white/10 pt-4">
             <div className="flex items-center gap-2">
                <select 
                 value={voiceType} 
                 onChange={(e) => setVoiceType(Number(e.target.value))}
-                className="text-sm border-none bg-transparent text-gray-600 focus:ring-0 cursor-pointer hover:text-blue-600"
+                className="text-sm border-none bg-transparent text-gray-800 focus:ring-0 cursor-pointer hover:text-blue-600"
               >
                 {VOICES.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
               </select>

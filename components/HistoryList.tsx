@@ -47,22 +47,22 @@ export default function HistoryList({ refreshTrigger }: { refreshTrigger: number
 
   if (history.length === 0) {
     return (
-      <div className="text-center py-12 bg-white/40 backdrop-blur-sm rounded-xl border border-dashed border-gray-300/50">
-        <Clock className="w-12 h-12 mx-auto text-gray-300 mb-3" />
-        <p className="text-gray-500">No translation history yet</p>
+      <div className="text-center py-12 bg-white/20 backdrop-blur-sm rounded-xl border border-dashed border-white/20">
+        <Clock className="w-12 h-12 mx-auto text-gray-400 mb-3" />
+        <p className="text-gray-600">No translation history yet</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+      <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2 drop-shadow-sm">
         <Clock className="w-5 h-5" />
         Recent Translations
       </h3>
       <div className="grid grid-cols-1 gap-4">
         {history.map((item) => (
-          <div key={item.id} className="bg-white/60 backdrop-blur-sm p-4 rounded-lg shadow-sm border border-gray-100/50 hover:shadow-md transition-shadow group">
+          <div key={item.id} className="bg-white/30 backdrop-blur-md p-4 rounded-lg shadow-sm border border-white/20 hover:shadow-md transition-shadow group hover:bg-white/40">
             <div className="flex justify-between items-start mb-2">
               <div className="flex items-center gap-2 text-xs font-medium text-gray-500 uppercase tracking-wide">
                 <span>{item.sourceLang}</span>
