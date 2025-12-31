@@ -365,11 +365,13 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
             pipVideoRef.current?.requestPictureInPicture().catch(e => console.error("PiP Error", e));
         };
     } else {
-        // If stream exists but dimensions changed, we might need to refresh stream?
-        // Canvas captureStream usually handles resize automatically or might need re-capture.
-        // Let's test if simple redraw is enough. 
-        // If canvas size changes, stream might stay at old resolution or update.
-        // Chrome updates stream resolution automatically.
+        // If stream exists but PiP is not active, try to open it
+        // This works if the function is called via a user gesture (e.g. clicking Scan, toggling Auto, or dragging sliders)
+        if (!document.pictureInPictureElement) {
+             pipVideoRef.current.requestPictureInPicture().catch(e => {
+                 // console.warn("Auto-open PiP failed (needs user gesture):", e);
+             });
+        }
     }
   };
   
@@ -969,24 +971,35 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
                                       />
                                   </div>
                                   
-                                  <div className="pt-2 border-t border-gray-100 flex justify-between gap-2">
+                              <div className="pt-2 border-t border-gray-100 flex flex-col gap-2">
                                       <button 
                                         onClick={() => {
-                                            setPipWidth(600);
-                                            setPipHeight(200);
-                                            setPipFontSize(20);
-                                            updatePiPWindow(targetText || "Resetting...");
+                                            updatePiPWindow(targetText || "PiP Window Opened");
                                         }}
-                                        className="text-xs text-blue-600 hover:underline"
+                                        className="w-full bg-blue-600 text-white rounded-md py-1.5 text-xs font-bold hover:bg-blue-700 transition-colors shadow-sm"
                                       >
-                                          Reset Default
+                                          Open Floating Window
                                       </button>
-                                      <button 
-                                        onClick={() => setShowPipSettings(false)}
-                                        className="text-xs text-gray-500 hover:text-gray-800"
-                                      >
-                                          Close
-                                      </button>
+                                      
+                                      <div className="flex justify-between gap-2">
+                                          <button 
+                                            onClick={() => {
+                                                setPipWidth(600);
+                                                setPipHeight(200);
+                                                setPipFontSize(20);
+                                                updatePiPWindow(targetText || "Resetting...", { width: 600, height: 200, fontSize: 20 });
+                                            }}
+                                            className="text-xs text-blue-600 hover:underline"
+                                          >
+                                              Reset Default
+                                          </button>
+                                          <button 
+                                            onClick={() => setShowPipSettings(false)}
+                                            className="text-xs text-gray-500 hover:text-gray-800"
+                                          >
+                                              Close
+                                          </button>
+                                      </div>
                                   </div>
                               </div>
                           </div>
