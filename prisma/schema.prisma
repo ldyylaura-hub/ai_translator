@@ -1,0 +1,27 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  username  String   @unique
+  password  String
+  createdAt DateTime @default(now())
+  history   History[]
+}
+
+model History {
+  id             Int      @id @default(autoincrement())
+  sourceText     String
+  translatedText String
+  sourceLang     String   @default("auto")
+  targetLang     String
+  createdAt      DateTime @default(now())
+  userId         Int
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
