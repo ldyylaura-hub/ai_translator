@@ -9,6 +9,8 @@ export const metadata: Metadata = {
   description: "Powered by Tencent Cloud AI",
 };
 
+import { BackgroundProvider } from "@/components/BackgroundProvider";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -16,7 +18,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={inter.className}>{children}</body>
+      <body className={inter.className}>
+        <BackgroundProvider>
+          {children}
+        </BackgroundProvider>
+      </body>
     </html>
   );
 }
