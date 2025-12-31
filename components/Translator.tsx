@@ -545,6 +545,9 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Reset input value to allow re-uploading the same file
+    e.target.value = '';
+
     const reader = new FileReader();
     reader.onloadend = async () => {
       const base64String = reader.result as string;
@@ -800,8 +803,11 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
                 disabled={loadingOCR}
                 className="text-gray-500 hover:text-blue-600 p-2 rounded-md hover:bg-blue-50 transition-colors tooltip flex items-center gap-1"
                 title="Upload Image (OCR)"
+                translate="no"
               >
-                {loadingOCR ? <Loader2 className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />}
+                <span className="w-5 h-5 flex items-center justify-center">
+                    {loadingOCR ? <Loader2 className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />}
+                </span>
                 <span className="text-xs font-bold">UPLOAD</span>
               </button>
 
