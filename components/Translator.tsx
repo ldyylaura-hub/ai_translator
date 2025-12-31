@@ -669,9 +669,9 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
             onChange={handleTextChange}
           />
           
-          <div className="mt-4 flex justify-between items-center shrink-0">
+          <div className="mt-4 flex flex-wrap justify-between items-center gap-y-2 shrink-0">
             <div className="text-xs text-gray-400">{sourceText.length} chars</div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2 justify-end">
               <input 
                 type="file" 
                 ref={fileInputRef} 
@@ -690,12 +690,12 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
                   <MonitorPlay className="w-5 h-5" />
                 </button>
               ) : (
-                <div className="flex items-center gap-1">
+                <div className="flex flex-wrap items-center gap-1 justify-end">
                    {/* Crop Button */}
                    <button
                     onClick={startCropSelection}
                     className={clsx(
-                        "px-3 py-1 rounded-md text-xs font-bold transition-all border",
+                        "px-3 py-1 rounded-md text-xs font-bold transition-all border whitespace-nowrap",
                         cropBox 
                             ? "text-white bg-blue-500 border-blue-600" 
                             : "text-gray-600 bg-gray-100 border-gray-300 hover:bg-gray-200"
@@ -718,7 +718,7 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
                    <button
                     onClick={handleAutoCaptureToggle}
                     className={clsx(
-                        "px-3 py-1 rounded-md text-xs font-bold transition-all border",
+                        "px-3 py-1 rounded-md text-xs font-bold transition-all border whitespace-nowrap",
                         autoCapture 
                             ? "text-white bg-green-500 border-green-600 animate-pulse" 
                             : "text-gray-600 bg-gray-100 border-gray-300 hover:bg-gray-200"
@@ -729,7 +729,7 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
                   </button>
                    <button
                     onClick={handleManualScan}
-                    className="text-white bg-red-500 hover:bg-red-600 px-3 py-1 rounded-md text-xs font-bold"
+                    className="text-white bg-red-500 hover:bg-red-600 px-3 py-1 rounded-md text-xs font-bold whitespace-nowrap"
                     title="Capture & Translate Now"
                   >
                     SCAN
