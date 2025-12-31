@@ -230,6 +230,7 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       const res = await axios.post('/api/tts', {
         text: targetText,
         voiceType,
+        lang: targetLang,
       });
       if (res.data.audio) {
         const audioSrc = `data:audio/mp3;base64,${res.data.audio}`;
