@@ -622,7 +622,7 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 h-[500px] divide-y md:divide-y-0 md:divide-x divide-white/10 relative">
+      <div className="grid grid-cols-1 md:grid-cols-2 h-[600px] divide-y md:divide-y-0 md:divide-x divide-white/10 relative">
         {/* Hidden Video/Canvas for Screen Capture */}
         <video ref={videoRef} className="hidden" autoPlay playsInline muted />
         <canvas ref={canvasRef} className="hidden" />
@@ -664,9 +664,9 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
 
         {/* Source Panel */}
         <div className="flex flex-col h-full relative bg-transparent overflow-hidden">
-          <div className="flex-1 min-h-0 relative">
+          <div className="flex-1 relative min-h-0">
             <textarea
-                className="w-full h-full p-6 resize-none outline-none text-lg text-gray-900 placeholder-gray-600 bg-transparent overflow-y-auto"
+                className="absolute inset-0 w-full h-full p-6 resize-none outline-none text-lg text-gray-900 placeholder-gray-600 bg-transparent overflow-y-auto"
                 placeholder="Enter text to translate..."
                 value={sourceText}
                 onChange={handleTextChange}
