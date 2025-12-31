@@ -28,7 +28,14 @@ export async function POST(request: Request) {
     };
 
     // Use GeneralAccurateOCR for higher accuracy with mixed text
-    const result = await ocrClient.GeneralAccurateOCR(params);
+    // Note: LanguageType is not supported in GeneralAccurateOCR, removing it.
+    // IsPdf is supported.
+    const accurateParams = {
+        ImageBase64: base64Data,
+        IsPdf: false,
+    };
+    
+    const result = await ocrClient.GeneralAccurateOCR(accurateParams);
     
     const text = result.TextDetections?.map((item: any) => item.DetectedText).join('\n');
 
