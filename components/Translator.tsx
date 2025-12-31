@@ -475,7 +475,8 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
     try {
       const res = await axios.post('/api/ocr', { 
           imageBase64: base64String,
-          mode: ocrMode 
+          mode: ocrMode,
+          lang: sourceLang // Pass the currently selected source language
       });
       if (res.data.text) {
         const text = res.data.text;
