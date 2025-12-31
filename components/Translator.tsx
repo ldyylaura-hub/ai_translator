@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
-import { Upload, Languages, Volume2, ArrowRight, Loader2, History as HistoryIcon, X, MonitorPlay, StopCircle } from 'lucide-react';
+import { Upload, Languages, Volume2, ArrowRight, Loader2, History as HistoryIcon, X, MonitorPlay, StopCircle, Settings } from 'lucide-react';
 import clsx from 'clsx';
 
 const LANGUAGES = [
@@ -270,21 +270,20 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
 
   const [pipWidth, setPipWidth] = useState(600);
   const [pipHeight, setPipHeight] = useState(200);
+  const [showPipSettings, setShowPipSettings] = useState(false);
 
   const updatePiPWindow = (text: string) => {
     // Use the persistent canvas ref
     if (!pipCanvasRef.current) {
         pipCanvasRef.current = document.createElement('canvas');
-        // Default size
-        pipCanvasRef.current.width = pipWidth;
-        pipCanvasRef.current.height = pipHeight;
     }
     const pipCanvas = pipCanvasRef.current;
     
-    // Resize if needed (check logic later, for now just use fixed or state size)
-    // Actually changing canvas size clears it, so only do it if state changes.
-    // But PiP stream size is fixed at init usually.
-    // Let's stick to fixed internal resolution but high enough quality.
+    // Update dimensions if changed
+    if (pipCanvas.width !== pipWidth || pipCanvas.height !== pipHeight) {
+        pipCanvas.width = pipWidth;
+        pipCanvas.height = pipHeight;
+    }
     
     const ctx = pipCanvas.getContext('2d');
     if (!ctx) return;
@@ -302,7 +301,7 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
     const chars = text.split('');
     let line = '';
     let y = 16;
-    const maxWidth = 560;
+    const maxWidth = pipWidth - 40; // Dynamic max width with padding
     const lineHeight = 30; // Comfortable reading height
     
     for (let i = 0; i < chars.length; i++) {
@@ -353,6 +352,12 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
             // Enter PiP
             pipVideoRef.current?.requestPictureInPicture().catch(e => console.error("PiP Error", e));
         };
+    } else {
+        // If stream exists but dimensions changed, we might need to refresh stream?
+        // Canvas captureStream usually handles resize automatically or might need re-capture.
+        // Let's test if simple redraw is enough. 
+        // If canvas size changes, stream might stay at old resolution or update.
+        // Chrome updates stream resolution automatically.
     }
   };
   
@@ -729,6 +734,87 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
                   >
                     SCAN
                   </button>
+                  
+                  {/* PiP Settings Toggle */}
+                  <div className="relative">
+                      <button
+                        onClick={() => setShowPipSettings(!showPipSettings)}
+                        className={clsx(
+                            "p-2 rounded-md transition-colors",
+                            showPipSettings ? "bg-gray-200 text-gray-800" : "text-gray-500 hover:bg-gray-100"
+                        )}
+                        title="PiP Window Settings"
+                      >
+                        <Settings className="w-5 h-5" />
+                      </button>
+                      
+                      {/* Settings Popup */}
+                      {showPipSettings && (
+                          <div className="absolute bottom-full mb-2 right-0 bg-white p-4 rounded-lg shadow-xl border border-gray-200 w-64 z-50">
+                              <h4 className="font-bold text-gray-800 mb-3 text-sm">PiP Window Size</h4>
+                              
+                              <div className="space-y-3">
+                                  <div>
+                                      <div className="flex justify-between text-xs text-gray-600 mb-1">
+                                          <span>Width</span>
+                                          <span>{pipWidth}px</span>
+                                      </div>
+                                      <input 
+                                        type="range" 
+                                        min="300" 
+                                        max="1200" 
+                                        step="10"
+                                        value={pipWidth}
+                                        onChange={(e) => {
+                                            setPipWidth(Number(e.target.value));
+                                            updatePiPWindow(targetText || "Adjusting size...");
+                                        }}
+                                        className="w-full"
+                                      />
+                                  </div>
+                                  
+                                  <div>
+                                      <div className="flex justify-between text-xs text-gray-600 mb-1">
+                                          <span>Height</span>
+                                          <span>{pipHeight}px</span>
+                                      </div>
+                                      <input 
+                                        type="range" 
+                                        min="100" 
+                                        max="800" 
+                                        step="10"
+                                        value={pipHeight}
+                                        onChange={(e) => {
+                                            setPipHeight(Number(e.target.value));
+                                            updatePiPWindow(targetText || "Adjusting size...");
+                                        }}
+                                        className="w-full"
+                                      />
+                                  </div>
+                                  
+                                  <div className="pt-2 border-t border-gray-100 flex justify-between gap-2">
+                                      <button 
+                                        onClick={() => {
+                                            setPipWidth(600);
+                                            setPipHeight(200);
+                                            updatePiPWindow(targetText || "Resetting...");
+                                        }}
+                                        className="text-xs text-blue-600 hover:underline"
+                                      >
+                                          Reset Default
+                                      </button>
+                                      <button 
+                                        onClick={() => setShowPipSettings(false)}
+                                        className="text-xs text-gray-500 hover:text-gray-800"
+                                      >
+                                          Close
+                                      </button>
+                                  </div>
+                              </div>
+                          </div>
+                      )}
+                  </div>
+
                   <button
                     onClick={stopScreenShare}
                     className="text-red-500 hover:text-red-700 p-2 rounded-md hover:bg-red-50 transition-colors"
