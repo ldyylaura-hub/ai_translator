@@ -142,20 +142,20 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
     if (!ctx) return;
 
     // Draw Background
-    ctx.fillStyle = '#1e293b'; // Slate-800
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'; // Semi-transparent black/gray
     ctx.fillRect(0, 0, pipCanvas.width, pipCanvas.height);
 
     // Draw Text
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 24px sans-serif';
+    ctx.font = '500 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif'; // Better font stack
     ctx.textBaseline = 'top';
     
     // Smart wrapping handling both CJK and English
     const chars = text.split('');
     let line = '';
-    let y = 20;
+    let y = 16;
     const maxWidth = 560;
-    const lineHeight = 32;
+    const lineHeight = 30; // Comfortable reading height
     
     for (let i = 0; i < chars.length; i++) {
         const char = chars[i];
