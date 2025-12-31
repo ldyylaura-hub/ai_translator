@@ -20,6 +20,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Text and target language are required' }, { status: 400 });
     }
 
+    // Limit text length to 2000 chars for free tier safety, but allow more than default
+    if (text.length > 2000) {
+        return NextResponse.json({ error: 'Text too long (max 2000 chars)' }, { status: 400 });
+    }
+
     const params = {
       SourceText: text,
       Source: sourceLang,

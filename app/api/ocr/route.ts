@@ -23,9 +23,12 @@ export async function POST(request: Request) {
 
     const params = {
       ImageBase64: base64Data,
+      IsPdf: false,
+      LanguageType: "auto", // Enable auto language detection
     };
 
-    const result = await ocrClient.GeneralBasicOCR(params);
+    // Use GeneralAccurateOCR for higher accuracy with mixed text
+    const result = await ocrClient.GeneralAccurateOCR(params);
     
     const text = result.TextDetections?.map((item: any) => item.DetectedText).join('\n');
 
