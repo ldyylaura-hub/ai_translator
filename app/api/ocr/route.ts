@@ -47,6 +47,7 @@ export async function POST(request: Request) {
     const shouldUseBasicWithLang = (ocrLang !== 'auto' && ocrLang !== 'zh');
     
     if (mode === 'basic' || shouldUseBasicWithLang) {
+        console.log(`[OCR] Using Standard Edition (GeneralBasicOCR). Lang: ${ocrLang}, Mode: ${mode}`);
         const params: any = {
             ImageBase64: base64Data,
         };
@@ -59,6 +60,7 @@ export async function POST(request: Request) {
         const text = result.TextDetections?.map((item: any) => item.DetectedText).join('\n');
         return NextResponse.json({ text, usedMode: 'basic', usedLang: ocrLang });
     } else {
+        console.log(`[OCR] Using High-Precision Edition (GeneralAccurateOCR). Lang: ${ocrLang}, Mode: ${mode}`);
         // Default to Accurate (High Precision) - Best for Chinese/English/Auto
         const accurateParams = {
             ImageBase64: base64Data,
