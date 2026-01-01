@@ -128,26 +128,31 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
            const canvas = overlayCanvasRef.current;
            const rect = canvas.getBoundingClientRect();
            
+           // FIX: Let's calculate the "fitted" dimensions manually
            const videoRatio = canvas.width / canvas.height;
            const containerRatio = rect.width / rect.height;
            
            let displayWidth, displayHeight, offsetX, offsetY;
            
            if (containerRatio > videoRatio) {
+               // Container is wider than video -> Video is full height, centered horizontally
                displayHeight = rect.height;
                displayWidth = displayHeight * videoRatio;
                offsetY = 0;
                offsetX = (rect.width - displayWidth) / 2;
            } else {
+               // Container is taller -> Video is full width, centered vertically
                displayWidth = rect.width;
                displayHeight = displayWidth / videoRatio;
                offsetX = 0;
                offsetY = (rect.height - displayHeight) / 2;
            }
            
+           // Convert mouse coordinates (tempCrop) relative to the image
            const imageX = tempCrop.x - offsetX;
            const imageY = tempCrop.y - offsetY;
            
+           // Scale to original video resolution
            const scale = canvas.width / displayWidth;
            
            setCropBox({
@@ -158,11 +163,12 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
            });
       }
       setShowCropOverlay(false);
-   };
+  };
 
   // Effect to handle Auto Capture Loop
   useEffect(() => {
     if (isScreenSharing && autoCapture) {
+        // Interval: 1.5 seconds (Optimized for performance)
         intervalRef.current = setInterval(() => {
             captureScreenAndTranslate(true); // true = silent mode
         }, 1500);
@@ -191,6 +197,7 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
 
       setIsScreenSharing(true);
       
+      // Stop sharing when user clicks "Stop sharing" browser UI
       stream.getVideoTracks()[0].onended = () => {
         stopScreenShare();
       };
@@ -227,6 +234,7 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
       videoRef.current.srcObject = null;
     }
     
+    // Close PiP if active
     if (document.pictureInPictureElement) {
         document.exitPictureInPicture();
     }
@@ -236,9 +244,9 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
 
   const [pipWidth, setPipWidth] = useState(600);
   const [pipHeight, setPipHeight] = useState(200);
-  const [pipFontSize, setPipFontSize] = useState(20);
+  const [pipFontSize, setPipFontSize] = useState(20); // Default font size 20px
   const [showPipSettings, setShowPipSettings] = useState(false);
-  const [ocrMode, setOcrMode] = useState<'accurate' | 'basic'>('accurate');
+  const [ocrMode, setOcrMode] = useState<'accurate' | 'basic'>('accurate'); // Default to accurate
   const [glossary, setGlossary] = useState<Record<string, string>>({});
   const [glossaryNormalized, setGlossaryNormalized] = useState<Record<string, string>>({});
   const [glossaryTerms, setGlossaryTerms] = useState<string[]>([]);
@@ -262,7 +270,7 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
           terms.push(key);
       });
       
-      // Sort terms by length descending
+      // Sort terms by length descending to match longest phrases first
       terms.sort((a, b) => b.length - a.length);
       
       setGlossaryNormalized(normalized);
@@ -293,6 +301,7 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
                   
                   const db = new SQL.Database(new Uint8Array(buffer));
                   
+                  // Get first table that is not a system table
                   const tablesQuery = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'");
                   if (tablesQuery.length === 0 || tablesQuery[0].values.length === 0) {
                       alert("No tables found in the database.");
@@ -301,6 +310,8 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
                   }
                   
                   const tableName = tablesQuery[0].values[0][0];
+                  
+                  // Query all data
                   const dataQuery = db.exec(`SELECT * FROM "${tableName}"`);
                   if (dataQuery.length === 0 || dataQuery[0].values.length === 0) {
                       alert(`Table ${tableName} is empty.`);
@@ -314,6 +325,8 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
                   const newEntries: Record<string, string> = {};
                   let count = 0;
                   
+                  // Heuristic: Try to find columns named 'source'/'original' and 'target'/'translation'
+                  // Otherwise fallback to index 0 and 1
                   let sourceIdx = 0;
                   let targetIdx = 1;
                   
@@ -332,14 +345,16 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
                        return;
                   }
 
-                  rows.forEach((row: any[]) => {
+                  rows.forEach((row: any[], index: number) => {
                       if (row[sourceIdx] && row[targetIdx]) {
                           let sVal = String(row[sourceIdx]).trim();
                           let tVal = String(row[targetIdx]).trim();
                           
+                          // Handle JSON structure in target value
                           if (tVal.startsWith('{') && tVal.endsWith('}')) {
                               try {
                                   const parsed = JSON.parse(tVal);
+                                  // Priority: 'rengong' -> 'machine' -> first value
                                   if (parsed.rengong) tVal = parsed.rengong;
                                   else if (parsed.machine) tVal = parsed.machine;
                                   else {
@@ -357,7 +372,10 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
                   });
                   
                   setGlossary(prev => ({ ...prev, ...newEntries }));
+                  
+                  // Simple Success Alert
                   alert(`Successfully imported ${count} entries from '${tableName}'.`);
+                  
                   db.close();
 
                } catch (err) {
@@ -367,6 +385,7 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
            };
           reader.readAsArrayBuffer(file);
       } else {
+          // JSON handling
           const reader = new FileReader();
           reader.onload = (event) => {
               try {
@@ -384,10 +403,11 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
           };
           reader.readAsText(file);
       }
-      e.target.value = '';
+      e.target.value = ''; // Reset
   };
 
   const updatePiPWindow = (text: string, options?: { width?: number, height?: number, fontSize?: number }) => {
+    // Use the persistent canvas ref
     if (!pipCanvasRef.current) {
         pipCanvasRef.current = document.createElement('canvas');
     }
@@ -397,6 +417,7 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
     const h = options?.height ?? pipHeight;
     const fs = options?.fontSize ?? pipFontSize;
 
+    // Update dimensions if changed
     if (pipCanvas.width !== w || pipCanvas.height !== h) {
         pipCanvas.width = w;
         pipCanvas.height = h;
@@ -405,18 +426,22 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
     const ctx = pipCanvas.getContext('2d');
     if (!ctx) return;
 
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    // Draw Background
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'; // Semi-transparent black/gray
     ctx.fillRect(0, 0, pipCanvas.width, pipCanvas.height);
 
+    // Draw Text
     ctx.fillStyle = '#ffffff';
+    // Use dynamic font size
     ctx.font = `500 ${fs}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`; 
     ctx.textBaseline = 'top';
     
+    // Smart wrapping based on dynamic width and font size
     const chars = text.split('');
     let line = '';
     let y = 16;
-    const maxWidth = w - 40;
-    const lineHeight = fs * 1.5;
+    const maxWidth = w - 40; // Dynamic max width with padding
+    const lineHeight = fs * 1.5; // Dynamic line height (1.5x font size)
     
     for (let i = 0; i < chars.length; i++) {
         const char = chars[i];
@@ -440,6 +465,7 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
         ctx.fillText(line, 20, y);
     }
 
+    // If PiP video element doesn't exist, create it
     if (!pipVideoRef.current) {
         const video = document.createElement('video');
         video.muted = true;
@@ -450,30 +476,40 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
         video.style.width = '1px';
         video.style.height = '1px';
         video.style.pointerEvents = 'none';
-        video.style.opacity = '0';
+        video.style.opacity = '0'; // Hide it visually from page
         document.body.appendChild(video);
         pipVideoRef.current = video;
     }
 
+    // Initialize stream only ONCE using the SAME canvas
     if (!pipVideoRef.current.srcObject) {
         const stream = pipCanvas.captureStream();
         pipVideoRef.current.srcObject = stream;
         
         pipVideoRef.current.onloadedmetadata = () => {
             pipVideoRef.current?.play();
+            // Enter PiP
             pipVideoRef.current?.requestPictureInPicture().catch(e => console.error("PiP Error", e));
         };
     } else {
+        // If stream exists but PiP is not active, try to open it
+        // This works if the function is called via a user gesture (e.g. clicking Scan, toggling Auto, or dragging sliders)
         if (!document.pictureInPictureElement) {
-             pipVideoRef.current.requestPictureInPicture().catch(e => {});
+             pipVideoRef.current.requestPictureInPicture().catch(e => {
+                 // console.warn("Auto-open PiP failed (needs user gesture):", e);
+             });
         }
     }
   };
   
+  // Ref to hold persistent PiP canvas
   const pipCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Ref for image comparison to save OCR quota
   const prevImageRef = useRef<Uint8ClampedArray | null>(null);
 
   const checkImageSimilarity = (ctx: CanvasRenderingContext2D, width: number, height: number): boolean => {
+      // Downscale for performance and noise tolerance
       const sampleSize = 32;
       const smallCanvas = document.createElement('canvas');
       smallCanvas.width = sampleSize;
@@ -486,20 +522,27 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
       
       if (!prevImageRef.current) {
           prevImageRef.current = imageData;
-          return false;
+          return false; // First frame, always process
       }
 
+      // Compare with previous
       let diff = 0;
       const totalPixels = sampleSize * sampleSize;
       
       for (let i = 0; i < imageData.length; i += 4) {
+          // Compare RGB (skip Alpha)
           diff += Math.abs(imageData[i] - prevImageRef.current[i]);     // R
           diff += Math.abs(imageData[i+1] - prevImageRef.current[i+1]); // G
           diff += Math.abs(imageData[i+2] - prevImageRef.current[i+2]); // B
       }
       
       const averageDiff = diff / (totalPixels * 3);
+      
+      // Update previous reference
       prevImageRef.current = imageData;
+
+      // Threshold: if average pixel difference is less than 5 (out of 255), consider it same
+      // Video noise is usually small.
       return averageDiff < 5;
   };
 
@@ -508,61 +551,60 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
 
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    const context = canvas.getContext('2d');
+    const context = canvas.getContext('2d', { willReadFrequently: true });
 
     if (!context) return;
 
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    
-    let finalCanvas = canvas;
     if (cropBox) {
-        const cropCanvas = document.createElement('canvas');
-        cropCanvas.width = cropBox.width;
-        cropCanvas.height = cropBox.height;
-        const cropCtx = cropCanvas.getContext('2d');
-        if (cropCtx) {
-            cropCtx.drawImage(
-                canvas, 
-                cropBox.x, cropBox.y, cropBox.width, cropBox.height, 
-                0, 0, cropBox.width, cropBox.height
-            );
-            finalCanvas = cropCanvas;
-        }
+        // Optimized draw: only draw the crop region to canvas
+        canvas.width = cropBox.width;
+        canvas.height = cropBox.height;
+        context.drawImage(
+            video,
+            cropBox.x, cropBox.y, cropBox.width, cropBox.height,
+            0, 0, cropBox.width, cropBox.height
+        );
+    } else {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
     }
     
-    if (silent) {
-        const finalCtx = finalCanvas.getContext('2d');
-        if (finalCtx) {
-            const isSame = checkImageSimilarity(finalCtx, finalCanvas.width, finalCanvas.height);
-            if (isSame) {
-                console.log("Skipping OCR: Screen content unchanged");
-                return;
-            }
+    // Check for similarity to save quota (Only in Auto Mode)
+    if (silent) { // silent=true implies auto capture loop
+        const isSame = checkImageSimilarity(context, canvas.width, canvas.height);
+        if (isSame) {
+            console.log("Skipping OCR: Screen content unchanged");
+            return;
         }
     }
 
-    const base64String = finalCanvas.toDataURL('image/jpeg');
+    const base64String = canvas.toDataURL('image/jpeg');
+    
+    // Call existing OCR logic
     processOCR(base64String, silent);
   };
 
   const processOCR = async (base64String: string, silent = false) => {
-    if (loadingOCR) return;
+    if (loadingOCR) return; // Prevent overlapping requests
     
     if (!silent) setLoadingOCR(true);
     try {
       const res = await axios.post('/api/ocr', { 
           imageBase64: base64String,
           mode: ocrMode,
-          lang: sourceLang
+          lang: sourceLang // Pass the currently selected source language
       });
       if (res.data.text) {
         const text = res.data.text;
         
+        // Only update if text is different to avoid jitter?
+        // Ideally yes, but for now let's just update.
         if (text !== sourceText) {
              setSourceText(text);
+             // Auto translate logic...
              if (sourceLang === 'auto') {
+               // ... (existing detection logic)
                const hasChinese = /[\u4e00-\u9fa5]/.test(text);
                const hasJapaneseOrKorean = /[\u3040-\u30ff\u31f0-\u31ff\uac00-\ud7af]/.test(text);
                let newTargetLang = targetLang;
@@ -572,54 +614,73 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
                if (newTargetLang !== targetLang) setTargetLang(newTargetLang);
                
                await performTranslation(text, sourceLang, newTargetLang, silent);
-            } else {
+             } else {
                await performTranslation(text, sourceLang, targetLang, silent);
-            }
+             }
         }
       }
     } catch (error: any) {
       console.error('OCR failed', error);
+      if (!silent) {
+         // Only show alert if manual scan
+         // alert('OCR failed: ' + (error.response?.data?.error || error.message));
+      }
     } finally {
       if (!silent) setLoadingOCR(false);
     }
   };
 
   const performTranslation = async (text: string, sLang: string, tLang: string, silent = false) => {
-    // 1. Check Glossary (Exact Match)
+    // 1. Check Glossary (Exact Match - Translation Memory)
     const trimmedText = text.trim();
     if (glossary[trimmedText]) {
         const translated = glossary[trimmedText];
         setTargetText(translated);
         if (onTranslationComplete) onTranslationComplete();
         
-        if (autoCapture) updatePiPWindow(translated);
-        else if (document.pictureInPictureElement) updatePiPWindow(translated);
-        
+        // Update PiP window if active
+        if (autoCapture) {
+            updatePiPWindow(translated);
+        } else if (document.pictureInPictureElement) {
+            updatePiPWindow(translated);
+        }
         if (!silent) console.log("Glossary match found (Exact):", trimmedText);
-        return; 
+        return; // Skip API call
     }
     
-    // 2. Check Glossary (Normalized Match)
-    const normalizedInput = normalizeForMatch(trimmedText);
-    if (glossaryNormalized[normalizedInput]) {
-         const translated = glossaryNormalized[normalizedInput];
+    // 2. Check Glossary (Normalized Match - Case Insensitive & Punctuation Ignored)
+    // Remove all punctuation and whitespace for "Fuzzy" matching
+    const normalize = (str: string) => str.toLowerCase().replace(/[^\w\u4e00-\u9fa5\u3040-\u30ff\u31f0-\u31ff\uac00-\ud7af]/g, '');
+    const normalizedInput = normalize(trimmedText);
+    
+    const lowerText = trimmedText.toLowerCase();
+    if (glossaryNormalized[lowerText]) {
+         const translated = glossaryNormalized[lowerText];
          setTargetText(translated);
          if (onTranslationComplete) onTranslationComplete();
          
-         if (autoCapture) updatePiPWindow(translated);
-         else if (document.pictureInPictureElement) updatePiPWindow(translated);
-         
+         if (autoCapture) {
+             updatePiPWindow(translated);
+         } else if (document.pictureInPictureElement) {
+             updatePiPWindow(translated);
+         }
          if (!silent) console.log("Glossary match found (Normalized):", trimmedText);
          return;
     }
 
     // 2.5 Fuzzy / Substring Match (Reverse Scan)
+    // If OCR text is part of a DB key, or DB key is part of OCR text
+    // Only perform if input length > 2 to avoid garbage matches
     const searchKey = normalizedInput;
     if (searchKey.length > 2) {
+        // Iterate through normalized keys
+        // Note: glossaryNormalized keys are now FULLY normalized (no punct) thanks to updated useEffect
         const keys = Object.keys(glossaryNormalized);
         for (const key of keys) {
-             // Case A: OCR is substring of Key
+             // Case A: OCR is a substring of DB Key (e.g. OCR missed some chars at end)
+             // AND length difference is not huge (e.g. < 50% diff) to prevent matching "No" to "Nothing..."
              if (key.includes(searchKey)) {
+                 // Check length ratio
                  if (searchKey.length / key.length > 0.6) {
                      const translated = glossaryNormalized[key];
                      setTargetText(translated);
@@ -630,8 +691,9 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
                  }
              }
              
-             // Case B: Key is substring of OCR
+             // Case B: DB Key is a substring of OCR (e.g. OCR has extra noise)
              if (searchKey.includes(key)) {
+                  // Check length ratio
                   if (key.length / searchKey.length > 0.6) {
                      const translated = glossaryNormalized[key];
                      setTargetText(translated);
@@ -639,20 +701,25 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
                      if (autoCapture || document.pictureInPictureElement) updatePiPWindow(translated);
                      if (!silent) console.log(`Glossary match found (Partial: Key is substring of OCR): ${key} in ${searchKey}`);
                      return;
-                  }
-             }
-        }
+                   }
+              }
+         }
     }
 
-    // 3. Term Substitution
+    // 3. Term Substitution (Glossary Mode)
+    // If we didn't match the whole sentence, check if we should replace specific terms
     let textToTranslate = text;
     let hasSubstitution = false;
     
     if (glossaryTerms.length > 0) {
         for (const term of glossaryTerms) {
+            // Check if term exists in text
             if (textToTranslate.includes(term)) {
                 const targetVal = glossary[term];
+                // Replace all occurrences
+                // Escape regex special chars
                 const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                // Use global flag
                 const regex = new RegExp(escapedTerm, 'g');
                 textToTranslate = textToTranslate.replace(regex, targetVal);
                 hasSubstitution = true;
@@ -666,7 +733,7 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
     if (!silent) setLoadingTranslate(true);
     try {
       const res = await axios.post('/api/translate', {
-        text: textToTranslate,
+        text: textToTranslate, // Send modified text
         sourceLang: sLang,
         targetLang: tLang,
       });
@@ -675,11 +742,16 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
         setTargetText(translated);
         if (onTranslationComplete) onTranslationComplete();
         
-        if (autoCapture) updatePiPWindow(translated);
-        else if (document.pictureInPictureElement) updatePiPWindow(translated);
+        // Update PiP window if active
+        if (autoCapture) {
+            updatePiPWindow(translated);
+        } else if (document.pictureInPictureElement) {
+             // Even if not auto capture, if PiP is open (e.g. from previous manual scan), update it
+             updatePiPWindow(translated);
+        }
       }
     } catch (error) {
-       console.error('Translation failed', error);
+      console.error('Translation failed', error);
     } finally {
       if (!silent) setLoadingTranslate(false);
     }
@@ -688,7 +760,10 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    // Reset input value to allow re-uploading the same file
     e.target.value = '';
+
     const reader = new FileReader();
     reader.onloadend = async () => {
       const base64String = reader.result as string;
@@ -697,19 +772,27 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
     reader.readAsDataURL(file);
   };
 
-  const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const text = e.target.value;
     setSourceText(text);
     
+    // Auto-switch target language only when user is typing and source is auto
     if (sourceLang === 'auto' && text.length > 0) {
+      // 1. Detect if text contains Chinese characters
       const hasChinese = /[\u4e00-\u9fa5]/.test(text);
+      
+      // 2. Detect if text contains Japanese/Korean characters (Hiragana, Katakana, Hangul)
       const hasJapaneseOrKorean = /[\u3040-\u30ff\u31f0-\u31ff\uac00-\ud7af]/.test(text);
 
       if (hasChinese && !hasJapaneseOrKorean) {
+        // If it looks like pure Chinese, translate to English
         setTargetLang('en');
       } else if (hasJapaneseOrKorean) {
+         // If it has Japanese/Korean, translate to Chinese
          setTargetLang('zh');
       } else {
+        // For other cases (mostly Latin/English), translate to Chinese
+        // But only if it has some content
         if (/[a-zA-Z]/.test(text)) {
            setTargetLang('zh');
         }
@@ -761,6 +844,7 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
       }
     } catch (error: any) {
       console.error('TTS API failed, switching to browser TTS', error);
+      // Fallback to browser native TTS (Free)
       speakWithBrowser(targetText);
     } finally {
       setLoadingTTS(false);
@@ -769,10 +853,12 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
 
   const speakWithBrowser = (text: string) => {
     if ('speechSynthesis' in window) {
+      // Cancel any ongoing speech
       window.speechSynthesis.cancel();
 
       const utterance = new SpeechSynthesisUtterance(text);
       
+      // Map our language codes to browser locales
       const langMap: Record<string, string> = {
         'zh': 'zh-CN',
         'en': 'en-US',
@@ -825,9 +911,11 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 h-[600px] divide-y md:divide-y-0 md:divide-x divide-white/10 relative">
+        {/* Hidden Video/Canvas for Screen Capture */}
         <video ref={videoRef} className="hidden" autoPlay playsInline muted />
         <canvas ref={canvasRef} className="hidden" />
 
+        {/* Crop Overlay */}
         {showCropOverlay && (
             <div 
                 className="absolute inset-0 z-50 bg-black/50 cursor-crosshair flex items-center justify-center select-none"
@@ -836,11 +924,13 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
                 onMouseUp={handleOverlayMouseUp}
             >
                 <div className="relative w-full h-full">
+                    {/* Background Canvas (Video Frame) */}
                     <canvas 
                         ref={overlayCanvasRef}
                         className="w-full h-full object-contain pointer-events-none"
                     />
                     
+                    {/* Selection Box */}
                     {tempCrop && (
                         <div 
                             className="absolute border-2 border-red-500 bg-red-500/20 pointer-events-none"
@@ -860,6 +950,7 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
             </div>
         )}
 
+        {/* Source Panel */}
         <div className="flex flex-col h-full relative bg-transparent overflow-hidden border-r border-white/10">
           <div className="flex-1 relative min-h-0">
             <textarea
@@ -871,6 +962,7 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
           </div>
         </div>
 
+        {/* Target Panel */}
         <div className="p-6 flex flex-col bg-transparent h-full overflow-hidden">
           <div className="flex-1 w-full text-base text-gray-900 whitespace-pre-wrap overflow-y-auto min-h-0">
             {targetText || <span className="text-gray-600">Translation will appear here...</span>}
@@ -899,6 +991,7 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
         </div>
       </div>
 
+      {/* Bottom Toolbar (Separated) */}
       <div className="px-6 py-4 bg-white/40 backdrop-blur-md border-t border-white/20 flex flex-wrap justify-between items-center gap-y-2">
             <div className="text-xs text-gray-600 font-medium flex items-center gap-2">
                 <span>{sourceText.length} chars</span>
@@ -934,6 +1027,7 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
                 <span className="text-xs font-bold">UPLOAD</span>
               </button>
 
+              {/* Screen Share Controls */}
               {!isScreenSharing ? (
                 <button
                   onClick={startScreenShare}
@@ -945,6 +1039,7 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
                 </button>
               ) : (
                 <div className="flex flex-wrap items-center gap-2 justify-end">
+                   {/* Crop Button */}
                    <button
                     onClick={startCropSelection}
                     className={clsx(
@@ -988,6 +1083,7 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
                     SCAN
                   </button>
                   
+                  {/* PiP Settings Toggle */}
                   <div className="relative">
                       <button
                         onClick={() => setShowPipSettings(!showPipSettings)}
@@ -1000,6 +1096,7 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
                         <Settings className="w-5 h-5" />
                       </button>
                       
+                      {/* Settings Popup */}
                       {showPipSettings && (
                           <div className="absolute bottom-full mb-2 right-0 bg-white p-4 rounded-lg shadow-xl border border-gray-200 w-72 z-50">
                               <h4 className="font-bold text-gray-800 mb-3 text-sm border-b pb-2">Settings</h4>
@@ -1050,6 +1147,7 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
                                         onChange={(e) => {
                                             const val = Number(e.target.value);
                                             setPipWidth(val);
+                                            // Pass explicit values to avoid stale state in closure
                                             updatePiPWindow(targetText || "Adjusting size...", { width: val });
                                         }}
                                         className="w-full"
