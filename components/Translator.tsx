@@ -45,6 +45,16 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
   const pipVideoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
+    // Load SQL.js for SQLite support
+    if (typeof window !== 'undefined' && !(window as any).initSqlJs) {
+        const script = document.createElement('script');
+        script.src = '/sql-wasm.js';
+        script.async = true;
+        document.body.appendChild(script);
+    }
+  }, []);
+
+  useEffect(() => {
     return () => {
       stopScreenShare();
       if (pipVideoRef.current) {
@@ -58,33 +68,12 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
   const [isSelecting, setIsSelecting] = useState(false);
   const selectionStartRef = useRef<{ x: number, y: number } | null>(null);
 
-  // Initialize with default full screen if no selection
-  const getCropRegion = (videoWidth: number, videoHeight: number) => {
-      if (cropBox) {
-          // Map CSS coordinates to Video coordinates
-          // This is tricky because video might be scaled.
-          // For simplicity in this version, we will assume full screen capture first.
-          // Or implementing a proper UI overlay for selection is complex without a preview.
-          
-          // Alternative: Just crop the center or specific ratio?
-          // No, user wants to select.
-          
-          // Let's implement a simple "Preview & Select" modal or overlay?
-          // That might be too complex for now.
-          
-          // Let's implement a "Crop Mode" where we show the video stream on the canvas
-          // and let user drag a box.
-      }
-      return { x: 0, y: 0, width: videoWidth, height: videoHeight };
-  };
-
   const [showCropOverlay, setShowCropOverlay] = useState(false);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
   const [tempCrop, setTempCrop] = useState<{ x: number, y: number, width: number, height: number } | null>(null);
 
   const startCropSelection = () => {
       setShowCropOverlay(true);
-      // Drawing moved to useEffect to ensure canvas is mounted
   };
 
   useEffect(() => {
@@ -137,48 +126,28 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
       setIsSelecting(false);
       if (tempCrop && tempCrop.width > 10 && tempCrop.height > 10 && overlayCanvasRef.current) {
            const canvas = overlayCanvasRef.current;
-           // Calculate the scale factor between the displayed size and actual canvas (video) size
-           // Because object-contain might scale the video down
-           
-           // Wait, overlayCanvasRef is drawn with ctx.drawImage(video, 0, 0)
-           // so its internal resolution is video resolution.
-           // But it's displayed with CSS 'object-contain'.
-           
-           // We need to calculate the actual position of the image within the canvas element
-           // Or simpler: We force the canvas to fill the container and draw the image scaled?
-           // No, easier way:
-           // Get the displayed rect of the canvas
            const rect = canvas.getBoundingClientRect();
            
-           // The canvas element fills the container (w-full h-full).
-           // But the image inside is 'object-contain'.
-           // This makes coordinate mapping complex because we don't know the empty margins.
-           
-           // FIX: Let's calculate the "fitted" dimensions manually
            const videoRatio = canvas.width / canvas.height;
            const containerRatio = rect.width / rect.height;
            
            let displayWidth, displayHeight, offsetX, offsetY;
            
            if (containerRatio > videoRatio) {
-               // Container is wider than video -> Video is full height, centered horizontally
                displayHeight = rect.height;
                displayWidth = displayHeight * videoRatio;
                offsetY = 0;
                offsetX = (rect.width - displayWidth) / 2;
            } else {
-               // Container is taller -> Video is full width, centered vertically
                displayWidth = rect.width;
                displayHeight = displayWidth / videoRatio;
                offsetX = 0;
                offsetY = (rect.height - displayHeight) / 2;
            }
            
-           // Convert mouse coordinates (tempCrop) relative to the image
            const imageX = tempCrop.x - offsetX;
            const imageY = tempCrop.y - offsetY;
            
-           // Scale to original video resolution
            const scale = canvas.width / displayWidth;
            
            setCropBox({
@@ -194,10 +163,9 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
   // Effect to handle Auto Capture Loop
   useEffect(() => {
     if (isScreenSharing && autoCapture) {
-        // Interval: 2 seconds
         intervalRef.current = setInterval(() => {
             captureScreenAndTranslate(true); // true = silent mode
-        }, 2000);
+        }, 1500);
     } else {
         if (intervalRef.current) {
             clearInterval(intervalRef.current);
@@ -223,7 +191,6 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
 
       setIsScreenSharing(true);
       
-      // Stop sharing when user clicks "Stop sharing" browser UI
       stream.getVideoTracks()[0].onended = () => {
         stopScreenShare();
       };
@@ -260,7 +227,6 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
       videoRef.current.srcObject = null;
     }
     
-    // Close PiP if active
     if (document.pictureInPictureElement) {
         document.exitPictureInPicture();
     }
@@ -270,27 +236,167 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
 
   const [pipWidth, setPipWidth] = useState(600);
   const [pipHeight, setPipHeight] = useState(200);
-  const [pipFontSize, setPipFontSize] = useState(20); // Default font size 20px
+  const [pipFontSize, setPipFontSize] = useState(20);
   const [showPipSettings, setShowPipSettings] = useState(false);
-  const [ocrMode, setOcrMode] = useState<'accurate' | 'basic'>('accurate'); // Default to accurate
+  const [ocrMode, setOcrMode] = useState<'accurate' | 'basic'>('accurate');
+  const [glossary, setGlossary] = useState<Record<string, string>>({});
+  const [glossaryNormalized, setGlossaryNormalized] = useState<Record<string, string>>({});
+  const [glossaryTerms, setGlossaryTerms] = useState<string[]>([]);
+  
+  // Helper to normalize strings for comparison (remove punctuation, whitespace, lowercase)
+  const normalizeForMatch = (str: string) => str.toLowerCase().replace(/[^\w\u4e00-\u9fa5\u3040-\u30ff\u31f0-\u31ff\uac00-\ud7af]/g, '');
+
+  useEffect(() => {
+      const normalized: Record<string, string> = {};
+      const terms: string[] = [];
+      
+      Object.keys(glossary).forEach(key => {
+          const val = glossary[key];
+          if (!key || !val) return;
+          
+          // Store purely normalized key for fast lookup
+          const normKey = normalizeForMatch(key);
+          if (normKey) {
+              normalized[normKey] = val;
+          }
+          terms.push(key);
+      });
+      
+      // Sort terms by length descending
+      terms.sort((a, b) => b.length - a.length);
+      
+      setGlossaryNormalized(normalized);
+      setGlossaryTerms(terms);
+  }, [glossary]);
+
+  const glossaryInputRef = useRef<HTMLInputElement>(null);
+
+  const handleGlossaryUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      
+      const isSqlite = file.name.endsWith('.sqlite') || file.name.endsWith('.db');
+      
+      if (isSqlite) {
+          if (!(window as any).initSqlJs) {
+              alert("SQL.js is still loading. Please wait a moment and try again.");
+              return;
+          }
+          
+          const reader = new FileReader();
+          reader.onload = async (event) => {
+              try {
+                  const buffer = event.target?.result as ArrayBuffer;
+                  const SQL = await (window as any).initSqlJs({
+                      locateFile: (file: string) => `/${file}`
+                  });
+                  
+                  const db = new SQL.Database(new Uint8Array(buffer));
+                  
+                  const tablesQuery = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'");
+                  if (tablesQuery.length === 0 || tablesQuery[0].values.length === 0) {
+                      alert("No tables found in the database.");
+                      db.close();
+                      return;
+                  }
+                  
+                  const tableName = tablesQuery[0].values[0][0];
+                  const dataQuery = db.exec(`SELECT * FROM "${tableName}"`);
+                  if (dataQuery.length === 0 || dataQuery[0].values.length === 0) {
+                      alert(`Table ${tableName} is empty.`);
+                      db.close();
+                      return;
+                  }
+                  
+                  const rows = dataQuery[0].values;
+                  const columns = dataQuery[0].columns;
+                  
+                  const newEntries: Record<string, string> = {};
+                  let count = 0;
+                  
+                  let sourceIdx = 0;
+                  let targetIdx = 1;
+                  
+                  if (columns.length >= 2) {
+                      const lowerCols = columns.map((c: string) => c.toLowerCase());
+                      const sIdx = lowerCols.findIndex((c: string) => c.includes('source') || c.includes('origin') || c.includes('key') || c.includes('original') || c.includes('zh') || c.includes('cn') || c.includes('ja') || c.includes('en'));
+                      const tIdx = lowerCols.findIndex((c: string) => c.includes('target') || c.includes('trans') || c.includes('val') || c.includes('translated'));
+                      
+                      if (sIdx !== -1 && tIdx !== -1 && sIdx !== tIdx) {
+                          sourceIdx = sIdx;
+                          targetIdx = tIdx;
+                      }
+                  } else {
+                       alert("Table must have at least 2 columns (Source, Target).");
+                       db.close();
+                       return;
+                  }
+
+                  rows.forEach((row: any[]) => {
+                      if (row[sourceIdx] && row[targetIdx]) {
+                          let sVal = String(row[sourceIdx]).trim();
+                          let tVal = String(row[targetIdx]).trim();
+                          
+                          if (tVal.startsWith('{') && tVal.endsWith('}')) {
+                              try {
+                                  const parsed = JSON.parse(tVal);
+                                  if (parsed.rengong) tVal = parsed.rengong;
+                                  else if (parsed.machine) tVal = parsed.machine;
+                                  else {
+                                      const keys = Object.keys(parsed);
+                                      if (keys.length > 0) tVal = parsed[keys[0]];
+                                  }
+                              } catch (e) {
+                                  // ignore invalid json
+                              }
+                          }
+                          
+                          newEntries[sVal] = tVal;
+                          count++;
+                      }
+                  });
+                  
+                  setGlossary(prev => ({ ...prev, ...newEntries }));
+                  alert(`Successfully imported ${count} entries from '${tableName}'.`);
+                  db.close();
+
+               } catch (err) {
+                  console.error("SQLite import failed", err);
+                  alert("Failed to parse SQLite file: " + err);
+               }
+           };
+          reader.readAsArrayBuffer(file);
+      } else {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+              try {
+                  const json = JSON.parse(event.target?.result as string);
+                  if (typeof json === 'object' && json !== null) {
+                      setGlossary(prev => ({ ...prev, ...json }));
+                      alert(`Successfully imported ${Object.keys(json).length} translation entries.`);
+                  } else {
+                      alert("Invalid JSON format. Expected a key-value object.");
+                  }
+              } catch (err) {
+                  console.error("Glossary import failed", err);
+                  alert("Failed to parse JSON file.");
+              }
+          };
+          reader.readAsText(file);
+      }
+      e.target.value = '';
+  };
 
   const updatePiPWindow = (text: string, options?: { width?: number, height?: number, fontSize?: number }) => {
-    // Use the persistent canvas ref
     if (!pipCanvasRef.current) {
         pipCanvasRef.current = document.createElement('canvas');
     }
     const pipCanvas = pipCanvasRef.current;
     
-    // Use provided options or fallback to state (or current canvas dimensions if state is stale in closure)
-    // Actually, we should use the passed options if available, otherwise current state.
-    // BUT since this function is a closure, 'pipWidth' might be old.
-    // So we rely on options for immediate updates during slider drag.
-    
     const w = options?.width ?? pipWidth;
     const h = options?.height ?? pipHeight;
     const fs = options?.fontSize ?? pipFontSize;
 
-    // Update dimensions if changed
     if (pipCanvas.width !== w || pipCanvas.height !== h) {
         pipCanvas.width = w;
         pipCanvas.height = h;
@@ -299,22 +405,18 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
     const ctx = pipCanvas.getContext('2d');
     if (!ctx) return;
 
-    // Draw Background
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'; // Semi-transparent black/gray
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
     ctx.fillRect(0, 0, pipCanvas.width, pipCanvas.height);
 
-    // Draw Text
     ctx.fillStyle = '#ffffff';
-    // Use dynamic font size
     ctx.font = `500 ${fs}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`; 
     ctx.textBaseline = 'top';
     
-    // Smart wrapping based on dynamic width and font size
     const chars = text.split('');
     let line = '';
     let y = 16;
-    const maxWidth = w - 40; // Dynamic max width with padding
-    const lineHeight = fs * 1.5; // Dynamic line height (1.5x font size)
+    const maxWidth = w - 40;
+    const lineHeight = fs * 1.5;
     
     for (let i = 0; i < chars.length; i++) {
         const char = chars[i];
@@ -338,7 +440,6 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
         ctx.fillText(line, 20, y);
     }
 
-    // If PiP video element doesn't exist, create it
     if (!pipVideoRef.current) {
         const video = document.createElement('video');
         video.muted = true;
@@ -349,40 +450,30 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
         video.style.width = '1px';
         video.style.height = '1px';
         video.style.pointerEvents = 'none';
-        video.style.opacity = '0'; // Hide it visually from page
+        video.style.opacity = '0';
         document.body.appendChild(video);
         pipVideoRef.current = video;
     }
 
-    // Initialize stream only ONCE using the SAME canvas
     if (!pipVideoRef.current.srcObject) {
         const stream = pipCanvas.captureStream();
         pipVideoRef.current.srcObject = stream;
         
         pipVideoRef.current.onloadedmetadata = () => {
             pipVideoRef.current?.play();
-            // Enter PiP
             pipVideoRef.current?.requestPictureInPicture().catch(e => console.error("PiP Error", e));
         };
     } else {
-        // If stream exists but PiP is not active, try to open it
-        // This works if the function is called via a user gesture (e.g. clicking Scan, toggling Auto, or dragging sliders)
         if (!document.pictureInPictureElement) {
-             pipVideoRef.current.requestPictureInPicture().catch(e => {
-                 // console.warn("Auto-open PiP failed (needs user gesture):", e);
-             });
+             pipVideoRef.current.requestPictureInPicture().catch(e => {});
         }
     }
   };
   
-  // Ref to hold persistent PiP canvas
   const pipCanvasRef = useRef<HTMLCanvasElement | null>(null);
-
-  // Ref for image comparison to save OCR quota
   const prevImageRef = useRef<Uint8ClampedArray | null>(null);
 
   const checkImageSimilarity = (ctx: CanvasRenderingContext2D, width: number, height: number): boolean => {
-      // Downscale for performance and noise tolerance
       const sampleSize = 32;
       const smallCanvas = document.createElement('canvas');
       smallCanvas.width = sampleSize;
@@ -395,27 +486,20 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
       
       if (!prevImageRef.current) {
           prevImageRef.current = imageData;
-          return false; // First frame, always process
+          return false;
       }
 
-      // Compare with previous
       let diff = 0;
       const totalPixels = sampleSize * sampleSize;
       
       for (let i = 0; i < imageData.length; i += 4) {
-          // Compare RGB (skip Alpha)
           diff += Math.abs(imageData[i] - prevImageRef.current[i]);     // R
           diff += Math.abs(imageData[i+1] - prevImageRef.current[i+1]); // G
           diff += Math.abs(imageData[i+2] - prevImageRef.current[i+2]); // B
       }
       
       const averageDiff = diff / (totalPixels * 3);
-      
-      // Update previous reference
       prevImageRef.current = imageData;
-
-      // Threshold: if average pixel difference is less than 5 (out of 255), consider it same
-      // Video noise is usually small.
       return averageDiff < 5;
   };
 
@@ -432,10 +516,8 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
     canvas.height = video.videoHeight;
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
     
-    // Apply Crop if exists
     let finalCanvas = canvas;
     if (cropBox) {
-        // Create a temporary canvas for cropped image
         const cropCanvas = document.createElement('canvas');
         cropCanvas.width = cropBox.width;
         cropCanvas.height = cropBox.height;
@@ -450,8 +532,7 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
         }
     }
     
-    // Check for similarity to save quota (Only in Auto Mode)
-    if (silent) { // silent=true implies auto capture loop
+    if (silent) {
         const finalCtx = finalCanvas.getContext('2d');
         if (finalCtx) {
             const isSame = checkImageSimilarity(finalCtx, finalCanvas.width, finalCanvas.height);
@@ -463,31 +544,25 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
     }
 
     const base64String = finalCanvas.toDataURL('image/jpeg');
-    
-    // Call existing OCR logic
     processOCR(base64String, silent);
   };
 
   const processOCR = async (base64String: string, silent = false) => {
-    if (loadingOCR) return; // Prevent overlapping requests
+    if (loadingOCR) return;
     
     if (!silent) setLoadingOCR(true);
     try {
       const res = await axios.post('/api/ocr', { 
           imageBase64: base64String,
           mode: ocrMode,
-          lang: sourceLang // Pass the currently selected source language
+          lang: sourceLang
       });
       if (res.data.text) {
         const text = res.data.text;
         
-        // Only update if text is different to avoid jitter?
-        // Ideally yes, but for now let's just update.
         if (text !== sourceText) {
              setSourceText(text);
-             // Auto translate logic...
              if (sourceLang === 'auto') {
-               // ... (existing detection logic)
                const hasChinese = /[\u4e00-\u9fa5]/.test(text);
                const hasJapaneseOrKorean = /[\u3040-\u30ff\u31f0-\u31ff\uac00-\ud7af]/.test(text);
                let newTargetLang = targetLang;
@@ -504,20 +579,94 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
       }
     } catch (error: any) {
       console.error('OCR failed', error);
-      if (!silent) {
-         // Only show alert if manual scan
-         // alert('OCR failed: ' + (error.response?.data?.error || error.message));
-      }
     } finally {
       if (!silent) setLoadingOCR(false);
     }
   };
 
   const performTranslation = async (text: string, sLang: string, tLang: string, silent = false) => {
+    // 1. Check Glossary (Exact Match)
+    const trimmedText = text.trim();
+    if (glossary[trimmedText]) {
+        const translated = glossary[trimmedText];
+        setTargetText(translated);
+        if (onTranslationComplete) onTranslationComplete();
+        
+        if (autoCapture) updatePiPWindow(translated);
+        else if (document.pictureInPictureElement) updatePiPWindow(translated);
+        
+        if (!silent) console.log("Glossary match found (Exact):", trimmedText);
+        return; 
+    }
+    
+    // 2. Check Glossary (Normalized Match)
+    const normalizedInput = normalizeForMatch(trimmedText);
+    if (glossaryNormalized[normalizedInput]) {
+         const translated = glossaryNormalized[normalizedInput];
+         setTargetText(translated);
+         if (onTranslationComplete) onTranslationComplete();
+         
+         if (autoCapture) updatePiPWindow(translated);
+         else if (document.pictureInPictureElement) updatePiPWindow(translated);
+         
+         if (!silent) console.log("Glossary match found (Normalized):", trimmedText);
+         return;
+    }
+
+    // 2.5 Fuzzy / Substring Match (Reverse Scan)
+    const searchKey = normalizedInput;
+    if (searchKey.length > 2) {
+        const keys = Object.keys(glossaryNormalized);
+        for (const key of keys) {
+             // Case A: OCR is substring of Key
+             if (key.includes(searchKey)) {
+                 if (searchKey.length / key.length > 0.6) {
+                     const translated = glossaryNormalized[key];
+                     setTargetText(translated);
+                     if (onTranslationComplete) onTranslationComplete();
+                     if (autoCapture || document.pictureInPictureElement) updatePiPWindow(translated);
+                     if (!silent) console.log(`Glossary match found (Partial: OCR is substring of Key): ${searchKey} in ${key}`);
+                     return;
+                 }
+             }
+             
+             // Case B: Key is substring of OCR
+             if (searchKey.includes(key)) {
+                  if (key.length / searchKey.length > 0.6) {
+                     const translated = glossaryNormalized[key];
+                     setTargetText(translated);
+                     if (onTranslationComplete) onTranslationComplete();
+                     if (autoCapture || document.pictureInPictureElement) updatePiPWindow(translated);
+                     if (!silent) console.log(`Glossary match found (Partial: Key is substring of OCR): ${key} in ${searchKey}`);
+                     return;
+                  }
+             }
+        }
+    }
+
+    // 3. Term Substitution
+    let textToTranslate = text;
+    let hasSubstitution = false;
+    
+    if (glossaryTerms.length > 0) {
+        for (const term of glossaryTerms) {
+            if (textToTranslate.includes(term)) {
+                const targetVal = glossary[term];
+                const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const regex = new RegExp(escapedTerm, 'g');
+                textToTranslate = textToTranslate.replace(regex, targetVal);
+                hasSubstitution = true;
+            }
+        }
+        if (hasSubstitution && !silent) {
+            console.log("Glossary substitution applied. Sending to API:", textToTranslate);
+        }
+    }
+
     if (!silent) setLoadingTranslate(true);
     try {
       const res = await axios.post('/api/translate', {
-        text: text,
+        text: textToTranslate,
         sourceLang: sLang,
         targetLang: tLang,
       });
@@ -526,13 +675,8 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
         setTargetText(translated);
         if (onTranslationComplete) onTranslationComplete();
         
-        // Update PiP window if active
-        if (autoCapture) {
-            updatePiPWindow(translated);
-        } else if (document.pictureInPictureElement) {
-             // Even if not auto capture, if PiP is open (e.g. from previous manual scan), update it
-             updatePiPWindow(translated);
-        }
+        if (autoCapture) updatePiPWindow(translated);
+        else if (document.pictureInPictureElement) updatePiPWindow(translated);
       }
     } catch (error) {
        console.error('Translation failed', error);
@@ -544,10 +688,7 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    // Reset input value to allow re-uploading the same file
     e.target.value = '';
-
     const reader = new FileReader();
     reader.onloadend = async () => {
       const base64String = reader.result as string;
@@ -556,27 +697,19 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
     reader.readAsDataURL(file);
   };
 
-const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+  const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const text = e.target.value;
     setSourceText(text);
     
-    // Auto-switch target language only when user is typing and source is auto
     if (sourceLang === 'auto' && text.length > 0) {
-      // 1. Detect if text contains Chinese characters
       const hasChinese = /[\u4e00-\u9fa5]/.test(text);
-      
-      // 2. Detect if text contains Japanese/Korean characters (Hiragana, Katakana, Hangul)
       const hasJapaneseOrKorean = /[\u3040-\u30ff\u31f0-\u31ff\uac00-\ud7af]/.test(text);
 
       if (hasChinese && !hasJapaneseOrKorean) {
-        // If it looks like pure Chinese, translate to English
         setTargetLang('en');
       } else if (hasJapaneseOrKorean) {
-         // If it has Japanese/Korean, translate to Chinese
          setTargetLang('zh');
       } else {
-        // For other cases (mostly Latin/English), translate to Chinese
-        // But only if it has some content
         if (/[a-zA-Z]/.test(text)) {
            setTargetLang('zh');
         }
@@ -628,7 +761,6 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       }
     } catch (error: any) {
       console.error('TTS API failed, switching to browser TTS', error);
-      // Fallback to browser native TTS (Free)
       speakWithBrowser(targetText);
     } finally {
       setLoadingTTS(false);
@@ -637,12 +769,10 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
 
   const speakWithBrowser = (text: string) => {
     if ('speechSynthesis' in window) {
-      // Cancel any ongoing speech
       window.speechSynthesis.cancel();
 
       const utterance = new SpeechSynthesisUtterance(text);
       
-      // Map our language codes to browser locales
       const langMap: Record<string, string> = {
         'zh': 'zh-CN',
         'en': 'en-US',
@@ -695,11 +825,9 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 h-[600px] divide-y md:divide-y-0 md:divide-x divide-white/10 relative">
-        {/* Hidden Video/Canvas for Screen Capture */}
         <video ref={videoRef} className="hidden" autoPlay playsInline muted />
         <canvas ref={canvasRef} className="hidden" />
 
-        {/* Crop Overlay */}
         {showCropOverlay && (
             <div 
                 className="absolute inset-0 z-50 bg-black/50 cursor-crosshair flex items-center justify-center select-none"
@@ -708,13 +836,11 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
                 onMouseUp={handleOverlayMouseUp}
             >
                 <div className="relative w-full h-full">
-                    {/* Background Canvas (Video Frame) */}
                     <canvas 
                         ref={overlayCanvasRef}
                         className="w-full h-full object-contain pointer-events-none"
                     />
                     
-                    {/* Selection Box */}
                     {tempCrop && (
                         <div 
                             className="absolute border-2 border-red-500 bg-red-500/20 pointer-events-none"
@@ -734,7 +860,6 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
             </div>
         )}
 
-        {/* Source Panel */}
         <div className="flex flex-col h-full relative bg-transparent overflow-hidden border-r border-white/10">
           <div className="flex-1 relative min-h-0">
             <textarea
@@ -746,7 +871,6 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
           </div>
         </div>
 
-        {/* Target Panel */}
         <div className="p-6 flex flex-col bg-transparent h-full overflow-hidden">
           <div className="flex-1 w-full text-base text-gray-900 whitespace-pre-wrap overflow-y-auto min-h-0">
             {targetText || <span className="text-gray-600">Translation will appear here...</span>}
@@ -775,7 +899,6 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         </div>
       </div>
 
-      {/* Bottom Toolbar (Separated) */}
       <div className="px-6 py-4 bg-white/40 backdrop-blur-md border-t border-white/20 flex flex-wrap justify-between items-center gap-y-2">
             <div className="text-xs text-gray-600 font-medium flex items-center gap-2">
                 <span>{sourceText.length} chars</span>
@@ -811,7 +934,6 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
                 <span className="text-xs font-bold">UPLOAD</span>
               </button>
 
-              {/* Screen Share Controls */}
               {!isScreenSharing ? (
                 <button
                   onClick={startScreenShare}
@@ -823,7 +945,6 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
                 </button>
               ) : (
                 <div className="flex flex-wrap items-center gap-2 justify-end">
-                   {/* Crop Button */}
                    <button
                     onClick={startCropSelection}
                     className={clsx(
@@ -867,7 +988,6 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
                     SCAN
                   </button>
                   
-                  {/* PiP Settings Toggle */}
                   <div className="relative">
                       <button
                         onClick={() => setShowPipSettings(!showPipSettings)}
@@ -880,7 +1000,6 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
                         <Settings className="w-5 h-5" />
                       </button>
                       
-                      {/* Settings Popup */}
                       {showPipSettings && (
                           <div className="absolute bottom-full mb-2 right-0 bg-white p-4 rounded-lg shadow-xl border border-gray-200 w-72 z-50">
                               <h4 className="font-bold text-gray-800 mb-3 text-sm border-b pb-2">Settings</h4>
@@ -931,7 +1050,6 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
                                         onChange={(e) => {
                                             const val = Number(e.target.value);
                                             setPipWidth(val);
-                                            // Pass explicit values to avoid stale state in closure
                                             updatePiPWindow(targetText || "Adjusting size...", { width: val });
                                         }}
                                         className="w-full"
@@ -978,6 +1096,32 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
                                       />
                                   </div>
                                   
+                              <div className="mb-4 pt-4 border-t border-gray-100">
+                                  <h5 className="font-bold text-gray-700 mb-2 text-xs">Translation Memory (Local)</h5>
+                                  <input 
+                                      type="file" 
+                                      ref={glossaryInputRef} 
+                                      className="hidden" 
+                                      accept=".json, .sqlite, .db" 
+                                      onChange={handleGlossaryUpload}
+                                  />
+                                  <div className="flex gap-2 items-center">
+                                      <button
+                                        onClick={() => glossaryInputRef.current?.click()}
+                                        className="flex-1 bg-white border border-gray-300 text-gray-600 hover:bg-gray-50 py-1.5 px-2 rounded-md text-xs font-medium transition-colors flex items-center justify-center gap-1"
+                                      >
+                                          <Upload className="w-3 h-3" />
+                                          Import Glossary (JSON/DB)
+                                      </button>
+                                      <div className="text-[10px] text-gray-400">
+                                          {Object.keys(glossary).length} entries
+                                      </div>
+                                  </div>
+                                  <div className="text-[10px] text-gray-400 mt-1">
+                                      Supports JSON or SQLite (.db/.sqlite)
+                                  </div>
+                              </div>
+
                               <div className="pt-2 border-t border-gray-100 flex flex-col gap-2">
                                       <button 
                                         onClick={() => {
