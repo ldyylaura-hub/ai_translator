@@ -251,30 +251,41 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
   const [glossaryNormalized, setGlossaryNormalized] = useState<Record<string, string>>({});
   const [glossaryTerms, setGlossaryTerms] = useState<string[]>([]);
   
+  // Worker for matching logic
+  const workerRef = useRef<Worker | null>(null);
+  
+  // Unique ID for worker requests to avoid race conditions
+  const requestIdRef = useRef(0);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+        workerRef.current = new Worker('/glossary-worker.js');
+        workerRef.current.onmessage = (e) => {
+             const { type, payload } = e.data;
+             if (type === 'LOAD_COMPLETE') {
+                 console.log(`Worker loaded ${payload.count} items.`);
+             }
+        };
+    }
+    return () => {
+        workerRef.current?.terminate();
+    };
+  }, []);
+  
   // Helper to normalize strings for comparison (remove punctuation, whitespace, lowercase)
   const normalizeForMatch = (str: string) => str.toLowerCase().replace(/[^\w\u4e00-\u9fa5\u3040-\u30ff\u31f0-\u31ff\uac00-\ud7af]/g, '');
 
+  // When glossary updates, send it to worker and clear local state if needed
   useEffect(() => {
-      const normalized: Record<string, string> = {};
-      const terms: string[] = [];
+      // We don't need to process it on main thread anymore!
+      // Just send to worker.
+      if (workerRef.current && Object.keys(glossary).length > 0) {
+          workerRef.current.postMessage({ type: 'LOAD_GLOSSARY', payload: glossary });
+      }
       
-      Object.keys(glossary).forEach(key => {
-          const val = glossary[key];
-          if (!key || !val) return;
-          
-          // Store purely normalized key for fast lookup
-          const normKey = normalizeForMatch(key);
-          if (normKey) {
-              normalized[normKey] = val;
-          }
-          terms.push(key);
-      });
-      
-      // Sort terms by length descending to match longest phrases first
-      terms.sort((a, b) => b.length - a.length);
-      
-      setGlossaryNormalized(normalized);
-      setGlossaryTerms(terms);
+      // We can keep glossaryNormalized empty on main thread to save memory
+      // setGlossaryNormalized({});
+      // setGlossaryTerms([]);
   }, [glossary]);
 
   const glossaryInputRef = useRef<HTMLInputElement>(null);
@@ -631,109 +642,76 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
   };
 
   const performTranslation = async (text: string, sLang: string, tLang: string, silent = false) => {
-    // 1. Check Glossary (Exact Match - Translation Memory)
     const trimmedText = text.trim();
-    if (glossary[trimmedText]) {
-        const translated = glossary[trimmedText];
-        setTargetText(translated);
-        if (onTranslationComplete) onTranslationComplete();
+
+    // Delegate ALL matching to Worker
+    if (workerRef.current && Object.keys(glossary).length > 0) {
+        // Increment request ID
+        const requestId = ++requestIdRef.current;
         
-        // Update PiP window if active
-        if (autoCapture) {
-            updatePiPWindow(translated);
-        } else if (document.pictureInPictureElement) {
-            updatePiPWindow(translated);
-        }
-        if (!silent) console.log("Glossary match found (Exact):", trimmedText);
-        return; // Skip API call
-    }
-    
-    // 2. Check Glossary (Normalized Match - Case Insensitive & Punctuation Ignored)
-    // Remove all punctuation and whitespace for "Fuzzy" matching
-    const normalize = (str: string) => str.toLowerCase().replace(/[^\w\u4e00-\u9fa5\u3040-\u30ff\u31f0-\u31ff\uac00-\ud7af]/g, '');
-    const normalizedInput = normalize(trimmedText);
-    
-    const lowerText = trimmedText.toLowerCase();
-    if (glossaryNormalized[lowerText]) {
-         const translated = glossaryNormalized[lowerText];
-         setTargetText(translated);
-         if (onTranslationComplete) onTranslationComplete();
-         
-         if (autoCapture) {
-             updatePiPWindow(translated);
-         } else if (document.pictureInPictureElement) {
-             updatePiPWindow(translated);
-         }
-         if (!silent) console.log("Glossary match found (Normalized):", trimmedText);
-         return;
-    }
+        try {
+            const workerResult = await new Promise<string | null>((resolve) => {
+                const handler = (e: MessageEvent) => {
+                    const { id, type, payload } = e.data;
+                    
+                    // Only handle messages for THIS request
+                    if (id !== requestId) return;
 
-    // 2.5 Fuzzy / Substring Match (Reverse Scan)
-    // If OCR text is part of a DB key, or DB key is part of OCR text
-    // Only perform if input length > 2 to avoid garbage matches
-    const searchKey = normalizedInput;
-    if (searchKey.length > 2) {
-        // Iterate through normalized keys
-        // Note: glossaryNormalized keys are now FULLY normalized (no punct) thanks to updated useEffect
-        const keys = Object.keys(glossaryNormalized);
-        for (const key of keys) {
-             // Case A: OCR is a substring of DB Key (e.g. OCR missed some chars at end)
-             // AND length difference is not huge (e.g. < 50% diff) to prevent matching "No" to "Nothing..."
-             if (key.includes(searchKey)) {
-                 // Check length ratio
-                 if (searchKey.length / key.length > 0.6) {
-                     const translated = glossaryNormalized[key];
-                     setTargetText(translated);
-                     if (onTranslationComplete) onTranslationComplete();
-                     if (autoCapture || document.pictureInPictureElement) updatePiPWindow(translated);
-                     if (!silent) console.log(`Glossary match found (Partial: OCR is substring of Key): ${searchKey} in ${key}`);
-                     return;
-                 }
-             }
-             
-             // Case B: DB Key is a substring of OCR (e.g. OCR has extra noise)
-             if (searchKey.includes(key)) {
-                  // Check length ratio
-                  if (key.length / searchKey.length > 0.6) {
-                     const translated = glossaryNormalized[key];
-                     setTargetText(translated);
-                     if (onTranslationComplete) onTranslationComplete();
-                     if (autoCapture || document.pictureInPictureElement) updatePiPWindow(translated);
-                     if (!silent) console.log(`Glossary match found (Partial: Key is substring of OCR): ${key} in ${searchKey}`);
-                     return;
-                   }
-              }
-         }
-    }
+                    if (type === 'MATCH_FOUND' || type === 'SUBSTITUTION_DONE') {
+                        workerRef.current?.removeEventListener('message', handler);
+                        if (!silent) console.log(`Worker matched: ${payload.method}`);
+                        
+                        // For Substitution, the payload is the text to be translated
+                        if (type === 'SUBSTITUTION_DONE') {
+                             // We still need to call API, so resolve with SPECIAL prefix or object?
+                             // Let's resolve with object to distinguish
+                             resolve(JSON.stringify({ type: 'PARTIAL', text: payload.text }));
+                        } else {
+                             // Full match found
+                             resolve(JSON.stringify({ type: 'FULL', text: payload.translated }));
+                        }
+                    } else if (type === 'NO_MATCH') {
+                        workerRef.current?.removeEventListener('message', handler);
+                        resolve(null);
+                    }
+                };
 
-    // 3. Term Substitution (Glossary Mode)
-    // If we didn't match the whole sentence, check if we should replace specific terms
-    let textToTranslate = text;
-    let hasSubstitution = false;
-    
-    if (glossaryTerms.length > 0) {
-        for (const term of glossaryTerms) {
-            // Check if term exists in text
-            if (textToTranslate.includes(term)) {
-                const targetVal = glossary[term];
-                // Replace all occurrences
-                // Escape regex special chars
-                const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                // Use global flag
-                const regex = new RegExp(escapedTerm, 'g');
-                textToTranslate = textToTranslate.replace(regex, targetVal);
-                hasSubstitution = true;
+                workerRef.current?.addEventListener('message', handler);
+                workerRef.current?.postMessage({ 
+                    id: requestId,
+                    type: 'FIND_MATCH', 
+                    payload: { text: trimmedText, silent } 
+                });
+
+                // Timeout fallback (e.g. 5 seconds)
+                setTimeout(() => {
+                    workerRef.current?.removeEventListener('message', handler);
+                    resolve(null);
+                }, 5000);
+            });
+
+            if (workerResult) {
+                const result = JSON.parse(workerResult);
+                if (result.type === 'FULL') {
+                    // Exact/Fuzzy match found -> Done
+                    setTargetText(result.text);
+                    if (onTranslationComplete) onTranslationComplete();
+                    if (autoCapture || document.pictureInPictureElement) updatePiPWindow(result.text);
+                    return;
+                } else if (result.type === 'PARTIAL') {
+                    // Substitution applied -> Continue to API
+                    text = result.text; // Update text for API call
+                }
             }
-        }
-        if (hasSubstitution && !silent) {
-            console.log("Glossary substitution applied. Sending to API:", textToTranslate);
+        } catch (e) {
+            console.error("Worker error", e);
         }
     }
 
     if (!silent) setLoadingTranslate(true);
     try {
       const res = await axios.post('/api/translate', {
-        text: textToTranslate, // Send modified text
+        text: text, // Use potentially modified text
         sourceLang: sLang,
         targetLang: tLang,
       });
