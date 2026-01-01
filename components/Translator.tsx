@@ -263,7 +263,8 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
         workerRef.current.onmessage = (e) => {
              const { type, payload } = e.data;
              if (type === 'LOAD_COMPLETE') {
-                 console.log(`Worker loaded ${payload.count} items.`);
+                 // Suppress log to avoid hydration mismatch/error overlay in dev
+                 // console.log(`Worker loaded ${payload.count} items.`);
              }
         };
     }
