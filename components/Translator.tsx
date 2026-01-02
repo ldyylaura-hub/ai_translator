@@ -64,7 +64,7 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
   }, []);
 
   // State for crop box
-  const [cropBox, setCropBox] = useState<{ x: number, y: number, width: number, height: number } | null>(null);
+  const [cropRegions, setCropRegions] = useState<Array<{ x: number, y: number, width: number, height: number }>>([]);
   const [isSelecting, setIsSelecting] = useState(false);
   const selectionStartRef = useRef<{ x: number, y: number } | null>(null);
 
@@ -83,9 +83,33 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
           canvas.width = video.videoWidth;
           canvas.height = video.videoHeight;
           const ctx = canvas.getContext('2d');
-          if (ctx) ctx.drawImage(video, 0, 0);
+          if (ctx) {
+              ctx.drawImage(video, 0, 0);
+              
+              // Draw existing regions
+              if (cropRegions.length > 0) {
+                  ctx.strokeStyle = '#3b82f6'; // blue-500
+                  ctx.lineWidth = 4;
+                  ctx.fillStyle = 'rgba(59, 130, 246, 0.2)';
+                  
+                  cropRegions.forEach((r, i) => {
+                      ctx.fillRect(r.x, r.y, r.width, r.height);
+                      ctx.strokeRect(r.x, r.y, r.width, r.height);
+                      
+                      // Draw label
+                      ctx.fillStyle = '#3b82f6';
+                      ctx.fillRect(r.x, r.y - 24, 30, 24);
+                      ctx.fillStyle = '#ffffff';
+                      ctx.font = 'bold 14px Arial';
+                      ctx.fillText(`${i+1}`, r.x + 10, r.y - 7);
+                      
+                      // Reset fill for next rect
+                      ctx.fillStyle = 'rgba(59, 130, 246, 0.2)';
+                  });
+              }
+          }
       }
-  }, [showCropOverlay]);
+  }, [showCropOverlay, cropRegions]);
 
   const handleOverlayMouseDown = (e: React.MouseEvent) => {
       const canvas = overlayCanvasRef.current;
@@ -128,20 +152,18 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
            const canvas = overlayCanvasRef.current;
            const rect = canvas.getBoundingClientRect();
            
-           // FIX: Let's calculate the "fitted" dimensions manually
+           // Calculate the "fitted" dimensions manually
            const videoRatio = canvas.width / canvas.height;
            const containerRatio = rect.width / rect.height;
            
            let displayWidth, displayHeight, offsetX, offsetY;
            
            if (containerRatio > videoRatio) {
-               // Container is wider than video -> Video is full height, centered horizontally
                displayHeight = rect.height;
                displayWidth = displayHeight * videoRatio;
                offsetY = 0;
                offsetX = (rect.width - displayWidth) / 2;
            } else {
-               // Container is taller -> Video is full width, centered vertically
                displayWidth = rect.width;
                displayHeight = displayWidth / videoRatio;
                offsetX = 0;
@@ -155,14 +177,18 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
            // Scale to original video resolution
            const scale = canvas.width / displayWidth;
            
-           setCropBox({
+           const newRegion = {
                x: Math.max(0, imageX * scale),
                y: Math.max(0, imageY * scale),
                width: tempCrop.width * scale,
                height: tempCrop.height * scale
-           });
+           };
+           
+           setCropRegions(prev => [...prev, newRegion]);
+           setTempCrop(null); // Clear temp crop but keep overlay open for more
       }
-      setShowCropOverlay(false);
+      // Don't close overlay immediately to allow multiple selections
+      // setShowCropOverlay(false); 
   };
 
   // Effect to handle Auto Capture Loop
@@ -223,6 +249,7 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
 
   const stopScreenShare = () => {
     setAutoCapture(false);
+    setShowCropOverlay(false); // Ensure overlay is closed
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
@@ -567,15 +594,33 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
 
     if (!context) return;
 
-    if (cropBox) {
-        // Optimized draw: only draw the crop region to canvas
-        canvas.width = cropBox.width;
-        canvas.height = cropBox.height;
-        context.drawImage(
-            video,
-            cropBox.x, cropBox.y, cropBox.width, cropBox.height,
-            0, 0, cropBox.width, cropBox.height
-        );
+    if (cropRegions.length > 0) {
+        // Multi-region Stitching
+        // 1. Calculate total height and max width
+        const totalHeight = cropRegions.reduce((sum, r) => sum + r.height, 0);
+        const maxWidth = Math.max(...cropRegions.map(r => r.width));
+        
+        // Add some padding between regions (e.g. 20px white space) to help OCR distinguish paragraphs
+        const padding = 20;
+        const finalHeight = totalHeight + (cropRegions.length - 1) * padding;
+        
+        canvas.width = maxWidth;
+        canvas.height = finalHeight;
+        
+        // Fill white background
+        context.fillStyle = '#FFFFFF';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        
+        let currentY = 0;
+        cropRegions.forEach((region) => {
+            context.drawImage(
+                video,
+                region.x, region.y, region.width, region.height,
+                0, currentY, region.width, region.height
+            );
+            currentY += region.height + padding;
+        });
+
     } else {
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
@@ -922,9 +967,22 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
                         />
                     )}
                     
-                    <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/80 text-white px-4 py-2 rounded-md pointer-events-none">
-                        Click and drag to select area. Release to confirm.
+                    <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/80 text-white px-4 py-2 rounded-md pointer-events-none text-center">
+                        <div className="font-bold">Draw multiple boxes to select regions.</div>
+                        <div className="text-xs text-gray-300">Close overlay when done. ({cropRegions.length} selected)</div>
                     </div>
+
+                    {/* Failsafe Close Button (Top Right) */}
+                    <button 
+                        className="absolute top-4 right-4 bg-red-600 hover:bg-red-700 text-white p-2 rounded-full shadow-lg z-50 pointer-events-auto transition-transform hover:scale-110"
+                        onClick={(e) => {
+                            e.stopPropagation(); // Prevent drawing trigger
+                            setShowCropOverlay(false);
+                        }}
+                        title="Exit Crop Mode"
+                    >
+                        <X className="w-5 h-5" />
+                    </button>
                 </div>
             </div>
         )}
@@ -1020,23 +1078,26 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
                 <div className="flex flex-wrap items-center gap-2 justify-end">
                    {/* Crop Button */}
                    <button
-                    onClick={startCropSelection}
+                    onClick={() => {
+                        if (showCropOverlay) setShowCropOverlay(false);
+                        else startCropSelection();
+                    }}
                     className={clsx(
                         "px-3 py-1.5 rounded-md text-xs font-bold transition-all border whitespace-nowrap flex items-center gap-1",
-                        cropBox 
+                        cropRegions.length > 0
                             ? "text-white bg-blue-500 border-blue-600" 
                             : "text-gray-600 bg-gray-100 border-gray-300 hover:bg-gray-200"
                     )}
-                    title="Select Crop Area"
+                    title={showCropOverlay ? "Click Overlay to Finish" : "Select Crop Area (Click multiple times to add regions)"}
                   >
-                    {cropBox ? "RECROP" : "CROP"}
+                    {showCropOverlay ? "DONE" : (cropRegions.length > 0 ? `CROP (${cropRegions.length})` : "CROP")}
                   </button>
                   
-                  {cropBox && (
+                  {cropRegions.length > 0 && (
                       <button
-                        onClick={() => setCropBox(null)}
+                        onClick={() => setCropRegions([])}
                         className="text-gray-500 hover:text-red-600 px-2 py-1.5 rounded-md text-xs font-bold border border-gray-200 hover:bg-red-50"
-                        title="Clear Crop"
+                        title="Clear All Crop Regions"
                       >
                         RESET
                       </button>
