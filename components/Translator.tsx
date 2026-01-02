@@ -35,15 +35,36 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
   const [showHistory, setShowHistory] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  // Load history from localStorage on mount
+  useEffect(() => {
+      const saved = localStorage.getItem('translation_history');
+      if (saved) {
+          try {
+              setHistory(JSON.parse(saved));
+          } catch (e) {
+              console.error("Failed to load history", e);
+          }
+      }
+  }, []);
+
   const addToHistory = (src: string, tgt: string) => {
       if (!src || !tgt) return;
       setHistory(prev => {
           // Avoid duplicates at the top
           if (prev.length > 0 && prev[0].source === src && prev[0].target === tgt) return prev;
-          return [{ source: src, target: tgt, time: Date.now() }, ...prev].slice(0, 50);
+          const newHistory = [{ source: src, target: tgt, time: Date.now() }, ...prev].slice(0, 100); // Keep last 100
+          localStorage.setItem('translation_history', JSON.stringify(newHistory));
+          return newHistory;
       });
   };
   
+  const clearHistory = () => {
+      if (confirm('Are you sure you want to clear all history?')) {
+          setHistory([]);
+          localStorage.removeItem('translation_history');
+      }
+  };
+
   const handleCopy = () => {
       if (targetText) {
           navigator.clipboard.writeText(targetText);
@@ -987,7 +1008,7 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
                 </h3>
                 <div className="flex gap-1">
                     <button 
-                        onClick={() => setHistory([])}
+                        onClick={clearHistory}
                         className="p-1.5 text-gray-400 hover:text-red-500 rounded-md hover:bg-red-50 transition-colors"
                         title="Clear History"
                     >
@@ -1001,29 +1022,55 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
                     </button>
                 </div>
              </div>
-             <div className="flex-1 overflow-y-auto p-4 space-y-4">
+             <div className="flex-1 overflow-y-auto p-4 space-y-1">
                 {history.length === 0 ? (
                     <div className="text-center text-gray-400 py-10 text-sm">
                         No history yet.
                     </div>
                 ) : (
-                    history.map((item, idx) => (
-                        <div 
-                            key={idx} 
-                            className="bg-white p-3 rounded-lg border border-gray-100 shadow-sm hover:shadow-md transition-shadow cursor-pointer group"
-                            onClick={() => {
-                                setSourceText(item.source);
-                                setTargetText(item.target);
-                                // Don't close history automatically, let user browse
-                            }}
-                        >
-                            <div className="text-xs text-gray-400 mb-1 flex justify-between">
-                                <span>{new Date(item.time).toLocaleTimeString()}</span>
+                    (() => {
+                        // Group history by date
+                        const groups: Record<string, typeof history> = {};
+                        history.forEach(item => {
+                            const date = new Date(item.time);
+                            const today = new Date();
+                            const yesterday = new Date();
+                            yesterday.setDate(yesterday.getDate() - 1);
+                            
+                            let label = date.toLocaleDateString();
+                            if (date.toDateString() === today.toDateString()) label = 'Today';
+                            else if (date.toDateString() === yesterday.toDateString()) label = 'Yesterday';
+                            
+                            if (!groups[label]) groups[label] = [];
+                            groups[label].push(item);
+                        });
+
+                        return Object.entries(groups).map(([label, items]) => (
+                            <div key={label} className="mb-4">
+                                <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 mt-2 px-1 sticky top-0 bg-white/95 backdrop-blur-sm py-1 z-10">
+                                    {label}
+                                </div>
+                                <div className="space-y-3">
+                                    {items.map((item, idx) => (
+                                        <div 
+                                            key={`${label}-${idx}`} 
+                                            className="bg-white p-3 rounded-lg border border-gray-100 shadow-sm hover:shadow-md transition-all cursor-pointer group hover:border-blue-200"
+                                            onClick={() => {
+                                                setSourceText(item.source);
+                                                setTargetText(item.target);
+                                            }}
+                                        >
+                                            <div className="text-xs text-gray-400 mb-1 flex justify-between">
+                                                <span>{new Date(item.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                            </div>
+                                            <div className="text-sm text-gray-800 line-clamp-2 mb-1 font-medium">{item.source}</div>
+                                            <div className="text-sm text-blue-600 line-clamp-3">{item.target}</div>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
-                            <div className="text-sm text-gray-800 line-clamp-2 mb-1 font-medium">{item.source}</div>
-                            <div className="text-sm text-blue-600 line-clamp-3">{item.target}</div>
-                        </div>
-                    ))
+                        ));
+                    })()
                 )}
              </div>
         </div>
