@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
-import { Upload, Languages, Volume2, ArrowRight, Loader2, History as HistoryIcon, X, MonitorPlay, StopCircle, Settings } from 'lucide-react';
+import { Upload, Languages, Volume2, ArrowRight, Loader2, History as HistoryIcon, X, MonitorPlay, StopCircle, Settings, Copy, Trash2, Check } from 'lucide-react';
 import clsx from 'clsx';
 
 const LANGUAGES = [
@@ -30,6 +30,28 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
   const [targetLang, setTargetLang] = useState('en');
   const [voiceType, setVoiceType] = useState(101001);
   
+  // History State
+  const [history, setHistory] = useState<Array<{ source: string, target: string, time: number }>>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const addToHistory = (src: string, tgt: string) => {
+      if (!src || !tgt) return;
+      setHistory(prev => {
+          // Avoid duplicates at the top
+          if (prev.length > 0 && prev[0].source === src && prev[0].target === tgt) return prev;
+          return [{ source: src, target: tgt, time: Date.now() }, ...prev].slice(0, 50);
+      });
+  };
+  
+  const handleCopy = () => {
+      if (targetText) {
+          navigator.clipboard.writeText(targetText);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+      }
+  };
+
   const [loadingOCR, setLoadingOCR] = useState(false);
   const [loadingTranslate, setLoadingTranslate] = useState(false);
   const [loadingTTS, setLoadingTTS] = useState(false);
@@ -739,12 +761,13 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
             if (workerResult) {
                 const result = JSON.parse(workerResult);
                 if (result.type === 'FULL') {
-                    // Exact/Fuzzy match found -> Done
-                    setTargetText(result.text);
-                    if (onTranslationComplete) onTranslationComplete();
-                    if (autoCapture || document.pictureInPictureElement) updatePiPWindow(result.text);
-                    return;
-                } else if (result.type === 'PARTIAL') {
+                        // Exact/Fuzzy match found -> Done
+                        setTargetText(result.text);
+                        addToHistory(trimmedText, result.text); // Add to history
+                        if (onTranslationComplete) onTranslationComplete();
+                        if (autoCapture || document.pictureInPictureElement) updatePiPWindow(result.text);
+                        return;
+                    } else if (result.type === 'PARTIAL') {
                     // Substitution applied -> Continue to API
                     text = result.text; // Update text for API call
                 }
@@ -764,6 +787,7 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
       if (res.data.translatedText) {
         const translated = res.data.translatedText;
         setTargetText(translated);
+        addToHistory(text, translated); // Add to history
         if (onTranslationComplete) onTranslationComplete();
         
         // Update PiP window if active
@@ -924,17 +948,86 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
           </select>
         </div>
 
-        <button 
-          onClick={handleTranslate}
-          disabled={loadingTranslate || !sourceText}
-          className="bg-blue-600/90 hover:bg-blue-600 text-white px-6 py-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 font-medium transition-all shadow-md hover:shadow-lg backdrop-blur-sm"
-        >
-          {loadingTranslate ? <Loader2 className="w-4 h-4 animate-spin" /> : <Languages className="w-4 h-4" />}
-          Translate
-        </button>
+        <div className="flex items-center gap-2">
+            <button 
+              onClick={() => setShowHistory(!showHistory)}
+              className={clsx(
+                  "p-2 rounded-lg transition-colors flex items-center gap-2 font-medium",
+                  showHistory ? "bg-blue-100 text-blue-700" : "bg-white/40 hover:bg-white/60 text-gray-700"
+              )}
+              title="History"
+            >
+              <HistoryIcon className="w-4 h-4" />
+              <span className="hidden sm:inline text-sm">History</span>
+            </button>
+
+            <button 
+              onClick={handleTranslate}
+              disabled={loadingTranslate || !sourceText}
+              className="bg-blue-600/90 hover:bg-blue-600 text-white px-6 py-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 font-medium transition-all shadow-md hover:shadow-lg backdrop-blur-sm"
+            >
+              {loadingTranslate ? <Loader2 className="w-4 h-4 animate-spin" /> : <Languages className="w-4 h-4" />}
+              Translate
+            </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 h-[600px] divide-y md:divide-y-0 md:divide-x divide-white/10 relative">
+        {/* History Sidebar */}
+        <div 
+            className={clsx(
+                "absolute top-0 right-0 w-full md:w-80 h-full bg-white/95 backdrop-blur-xl border-l border-white/20 shadow-2xl z-50 flex flex-col transition-transform duration-300 ease-in-out",
+                showHistory ? "translate-x-0" : "translate-x-full"
+            )}
+        >
+             <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-white/50">
+                <h3 className="font-bold text-gray-700 flex items-center gap-2">
+                    <HistoryIcon className="w-4 h-4" />
+                    History
+                </h3>
+                <div className="flex gap-1">
+                    <button 
+                        onClick={() => setHistory([])}
+                        className="p-1.5 text-gray-400 hover:text-red-500 rounded-md hover:bg-red-50 transition-colors"
+                        title="Clear History"
+                    >
+                        <Trash2 className="w-4 h-4" />
+                    </button>
+                    <button 
+                        onClick={() => setShowHistory(false)}
+                        className="p-1.5 text-gray-400 hover:text-gray-700 rounded-md hover:bg-gray-100 transition-colors"
+                    >
+                        <X className="w-4 h-4" />
+                    </button>
+                </div>
+             </div>
+             <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {history.length === 0 ? (
+                    <div className="text-center text-gray-400 py-10 text-sm">
+                        No history yet.
+                    </div>
+                ) : (
+                    history.map((item, idx) => (
+                        <div 
+                            key={idx} 
+                            className="bg-white p-3 rounded-lg border border-gray-100 shadow-sm hover:shadow-md transition-shadow cursor-pointer group"
+                            onClick={() => {
+                                setSourceText(item.source);
+                                setTargetText(item.target);
+                                // Don't close history automatically, let user browse
+                            }}
+                        >
+                            <div className="text-xs text-gray-400 mb-1 flex justify-between">
+                                <span>{new Date(item.time).toLocaleTimeString()}</span>
+                            </div>
+                            <div className="text-sm text-gray-800 line-clamp-2 mb-1 font-medium">{item.source}</div>
+                            <div className="text-sm text-blue-600 line-clamp-3">{item.target}</div>
+                        </div>
+                    ))
+                )}
+             </div>
+        </div>
+
         {/* Hidden Video/Canvas for Screen Capture */}
         <video ref={videoRef} className="hidden" autoPlay playsInline muted />
         <canvas ref={canvasRef} className="hidden" />
@@ -1016,14 +1109,24 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
               </select>
             </div>
             
-            <button 
-              onClick={handleTTS}
-              disabled={loadingTTS || !targetText}
-              className="text-gray-500 hover:text-blue-600 p-2 rounded-md hover:bg-blue-50 transition-colors flex items-center gap-2"
-              title="Listen"
-            >
-              {loadingTTS ? <Loader2 className="w-5 h-5 animate-spin" /> : <Volume2 className="w-5 h-5" />}
-            </button>
+            <div className="flex items-center gap-2">
+                <button 
+                  onClick={handleCopy}
+                  disabled={!targetText}
+                  className="text-gray-500 hover:text-blue-600 p-2 rounded-md hover:bg-blue-50 transition-colors flex items-center gap-2"
+                  title="Copy Translation"
+                >
+                  {copied ? <Check className="w-5 h-5 text-green-500" /> : <Copy className="w-5 h-5" />}
+                </button>
+                <button 
+                  onClick={handleTTS}
+                  disabled={loadingTTS || !targetText}
+                  className="text-gray-500 hover:text-blue-600 p-2 rounded-md hover:bg-blue-50 transition-colors flex items-center gap-2"
+                  title="Listen"
+                >
+                  {loadingTTS ? <Loader2 className="w-5 h-5 animate-spin" /> : <Volume2 className="w-5 h-5" />}
+                </button>
+            </div>
           </div>
         </div>
       </div>
