@@ -32,7 +32,31 @@ export async function POST(request: Request) {
       ProjectId: 0,
     };
 
-    const result = await tmtClient.TextTranslate(params);
+    let result;
+    try {
+        result = await tmtClient.TextTranslate(params);
+    } catch (error: any) {
+        // Fallback for Auto-Detect failure (e.g. short text like "hi")
+        // Tencent might return "LanguageRecognitionErr" or Chinese error message
+        if (sourceLang === 'auto') {
+            let retryLang = '';
+            if (/^[\x00-\x7F]+$/.test(text)) retryLang = 'en'; // ASCII -> English
+            else if (/[\u3040-\u30ff]/.test(text)) retryLang = 'ja'; // Kana -> Japanese
+            else if (/[\uac00-\ud7af]/.test(text)) retryLang = 'ko'; // Hangul -> Korean
+            else if (/[\u4e00-\u9fa5]/.test(text)) retryLang = 'zh'; // Hanzi -> Chinese
+            
+            if (retryLang) {
+                console.log(`[Translate] Auto-detect failed, retrying with inferred lang: ${retryLang}`);
+                params.Source = retryLang;
+                result = await tmtClient.TextTranslate(params);
+            } else {
+                throw error;
+            }
+        } else {
+            throw error;
+        }
+    }
+
     const translatedText = result.TargetText || '';
 
     // Save to history
