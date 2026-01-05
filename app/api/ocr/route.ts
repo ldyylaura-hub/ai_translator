@@ -50,11 +50,13 @@ export async function POST(request: Request) {
         console.log(`[OCR] Using Standard Edition (GeneralBasicOCR). Lang: ${ocrLang}, Mode: ${mode}`);
         const params: any = {
             ImageBase64: base64Data,
+            LanguageType: ocrLang // Always pass language, even if 'auto' (GeneralBasicOCR supports 'auto')
         };
-        // Only add LanguageType if it's not auto (or if we want to force auto, but usually omitting it is safer for auto)
-        if (ocrLang !== 'auto') {
-            params.LanguageType = ocrLang;
-        }
+        
+        /* 
+           Previous logic omitted LanguageType for 'auto', which caused GeneralBasicOCR to default to 'zh'.
+           Fixed by explicitly passing 'auto'.
+        */
 
         const result = await ocrClient.GeneralBasicOCR(params);
         const text = result.TextDetections?.map((item: any) => item.DetectedText).join('\n');
