@@ -12,7 +12,10 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { text, lang, voiceType, voiceName } = await request.json();
+    const body = await request.json();
+    const { text, lang, voiceType, voiceName } = body;
+
+    console.log(`[TTS DEBUG] Request received. textlen=${text?.length}, lang=${lang}, voiceName=${voiceName}, voiceType=${voiceType}`);
 
     if (!text) {
       return NextResponse.json({ error: 'Text is required' }, { status: 400 });
@@ -20,15 +23,13 @@ export async function POST(request: Request) {
 
     let voice = 'en-US-AriaNeural'; // Default fallback
 
-    // Priority 1: Direct Voice Name (from new frontend)
-    if (voiceName) {
+    // Priority 1: Direct Voice Name
+    if (voiceName && typeof voiceName === 'string' && voiceName.length > 0) {
         voice = voiceName;
     } 
     // Priority 2: Legacy VoiceType Mapping
     else {
         // Determine gender from voiceType (Tencent IDs)
-        // Female: 101001, 101002
-        // Male: 101003, 101004
         const isMale = voiceType === 101003 || voiceType === 101004;
         const gender = isMale ? 'male' : 'female';
     
@@ -49,21 +50,37 @@ export async function POST(request: Request) {
         }
     }
 
-    const tts = new Communicate(text, { voice });
+    console.log(`[TTS DEBUG] Initializing Communicate with voice: "${voice}"`);
+    
+    // Create options object explicitly
+    // Simplify options to avoid potential formatting issues with rate/pitch
+    const options = { voice };
+    
+    console.log(`[TTS DEBUG] Communicate initialized with options:`, JSON.stringify(options));
+    
+    const tts = new Communicate(text, options);
+    
+    console.log(`[TTS DEBUG] Communicate initialized. Starting stream...`);
     
     const chunks: Buffer[] = [];
+
     for await (const chunk of tts.stream()) {
-        if (chunk.type === 'audio' && chunk.data) {
-            chunks.push(chunk.data);
-        }
+      if (chunk.type === 'audio' && chunk.data) {
+        chunks.push(chunk.data);
+      }
     }
     
+    console.log(`[TTS DEBUG] Stream finished. Collected ${chunks.length} chunks.`);
+
     const audioBuffer = Buffer.concat(chunks);
     const audioBase64 = audioBuffer.toString('base64');
+    const audioUrl = `data:audio/mp3;base64,${audioBase64}`;
 
-    return NextResponse.json({ audio: audioBase64 });
+    return NextResponse.json({ audio: audioUrl });
   } catch (error: any) {
-    console.error('TTS Error:', error);
-    return NextResponse.json({ error: error.message || 'TTS failed' }, { status: 500 });
+    console.error('[TTS ERROR] Detailed error:', error);
+    // Print stack trace if available
+    if (error.stack) console.error(error.stack);
+    return NextResponse.json({ error: 'TTS failed', details: error.message }, { status: 500 });
   }
 }
