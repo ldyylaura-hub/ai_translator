@@ -17,10 +17,10 @@ const LANGUAGES = [
 ];
 
 const VOICES = [
-  { id: 101001, name: 'Zhiyu (Female)' },
-  { id: 101002, name: 'Zhiling (Female)' },
-  { id: 101003, name: 'Zhiping (Male)' },
-  { id: 101004, name: 'Zhilun (Male)' },
+  { id: 101001, name: 'Voice 1 (Female)' },
+  { id: 101002, name: 'Voice 2 (Female)' },
+  { id: 101003, name: 'Voice 3 (Male)' },
+  { id: 101004, name: 'Voice 4 (Male)' },
 ];
 
 export default function Translator({ onTranslationComplete }: { onTranslationComplete?: () => void }) {

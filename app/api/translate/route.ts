@@ -59,17 +59,22 @@ export async function POST(request: Request) {
 
     const translatedText = result.TargetText || '';
 
-    // Save to history
-    // @ts-ignore
-    await prisma.history.create({
-      data: {
-        sourceText: text,
-        translatedText: translatedText,
-        sourceLang: sourceLang,
-        targetLang: targetLang,
-        userId: (userPayload as any).userId,
-      },
-    });
+    // Save to history (Non-blocking: don't fail translation if DB is down)
+    try {
+        // @ts-ignore
+        await prisma.history.create({
+          data: {
+            sourceText: text,
+            translatedText: translatedText,
+            sourceLang: sourceLang,
+            targetLang: targetLang,
+            userId: (userPayload as any).userId,
+          },
+        });
+    } catch (dbError) {
+        console.warn('Failed to save history to DB (non-fatal):', dbError);
+        // Continue without erroring out
+    }
 
     return NextResponse.json({ translatedText });
   } catch (error: any) {
