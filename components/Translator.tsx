@@ -16,19 +16,61 @@ const LANGUAGES = [
   { code: 'ru', name: 'Russian' },
 ];
 
-const VOICES = [
-  { id: 101001, name: 'Zhiyu (Female)' },
-  { id: 101002, name: 'Zhiling (Female)' },
-  { id: 101003, name: 'Zhiping (Male)' },
-  { id: 101004, name: 'Zhilun (Male)' },
-];
+const AVAILABLE_VOICES: Record<string, Array<{ id: string, name: string }>> = {
+  'zh': [
+    { id: 'zh-CN-XiaoxiaoNeural', name: 'Xiaoxiao (Female, Warm)' },
+    { id: 'zh-CN-YunxiNeural', name: 'Yunxi (Male, Cheerful)' },
+    { id: 'zh-CN-YunjianNeural', name: 'Yunjian (Male, Sports)' },
+    { id: 'zh-CN-XiaoyiNeural', name: 'Xiaoyi (Female, Digital)' },
+    { id: 'zh-CN-liaoning-XiaobeiNeural', name: 'Xiaobei (Female, Dialect)' },
+  ],
+  'en': [
+    { id: 'en-US-AriaNeural', name: 'Aria (Female)' },
+    { id: 'en-US-GuyNeural', name: 'Guy (Male)' },
+    { id: 'en-US-JennyNeural', name: 'Jenny (Female)' },
+    { id: 'en-US-ChristopherNeural', name: 'Christopher (Male)' },
+    { id: 'en-US-EricNeural', name: 'Eric (Male)' },
+  ],
+  'ja': [
+    { id: 'ja-JP-NanamiNeural', name: 'Nanami (Female)' },
+    { id: 'ja-JP-KeitaNeural', name: 'Keita (Male)' },
+  ],
+  'ko': [
+    { id: 'ko-KR-SunHiNeural', name: 'SunHi (Female)' },
+    { id: 'ko-KR-InJoonNeural', name: 'InJoon (Male)' },
+  ],
+  'fr': [
+    { id: 'fr-FR-DeniseNeural', name: 'Denise (Female)' },
+    { id: 'fr-FR-HenriNeural', name: 'Henri (Male)' },
+  ],
+  'es': [
+    { id: 'es-ES-ElviraNeural', name: 'Elvira (Female)' },
+    { id: 'es-ES-AlvaroNeural', name: 'Alvaro (Male)' },
+  ],
+  'de': [
+    { id: 'de-DE-KatjaNeural', name: 'Katja (Female)' },
+    { id: 'de-DE-ConradNeural', name: 'Conrad (Male)' },
+  ],
+  'ru': [
+    { id: 'ru-RU-SvetlanaNeural', name: 'Svetlana (Female)' },
+    { id: 'ru-RU-DmitryNeural', name: 'Dmitry (Male)' },
+  ],
+};
 
 export default function Translator({ onTranslationComplete }: { onTranslationComplete?: () => void }) {
   const [sourceText, setSourceText] = useState('');
   const [targetText, setTargetText] = useState('');
   const [sourceLang, setSourceLang] = useState('auto');
   const [targetLang, setTargetLang] = useState('en');
-  const [voiceType, setVoiceType] = useState(101001);
+  const [voiceName, setVoiceName] = useState('en-US-AriaNeural'); // Default voice
+  
+  // Update voice when target language changes
+  useEffect(() => {
+      const voices = AVAILABLE_VOICES[targetLang];
+      if (voices && voices.length > 0) {
+          setVoiceName(voices[0].id);
+      }
+  }, [targetLang]);
   
   // History State
   const [history, setHistory] = useState<Array<{ source: string, target: string, time: number }>>([]);
@@ -897,7 +939,7 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     try {
       const res = await axios.post('/api/tts', {
         text: targetText,
-        voiceType,
+        voiceName, // Send voiceName instead of voiceType
         lang: targetLang,
       });
       if (res.data.audio) {
@@ -1148,11 +1190,13 @@ const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
           <div className="mt-4 flex justify-between items-center border-t border-white/10 pt-4 shrink-0">
             <div className="flex items-center gap-2">
                <select 
-                value={voiceType} 
-                onChange={(e) => setVoiceType(Number(e.target.value))}
-                className="text-sm border-none bg-transparent text-gray-800 focus:ring-0 cursor-pointer hover:text-blue-600"
+                value={voiceName} 
+                onChange={(e) => setVoiceName(e.target.value)}
+                className="text-sm border-none bg-transparent text-gray-800 focus:ring-0 cursor-pointer hover:text-blue-600 max-w-[150px] truncate"
               >
-                {VOICES.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                {(AVAILABLE_VOICES[targetLang] || AVAILABLE_VOICES['en']).map(v => (
+                    <option key={v.id} value={v.id}>{v.name}</option>
+                ))}
               </select>
             </div>
             

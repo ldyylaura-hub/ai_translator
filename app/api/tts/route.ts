@@ -12,37 +12,41 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { text, lang, voiceType } = await request.json();
+    const { text, lang, voiceType, voiceName } = await request.json();
 
     if (!text) {
       return NextResponse.json({ error: 'Text is required' }, { status: 400 });
     }
 
-    // Determine gender from voiceType (Tencent IDs)
-    // Female: 101001, 101002
-    // Male: 101003, 101004
-    const isMale = voiceType === 101003 || voiceType === 101004;
-    const gender = isMale ? 'male' : 'female';
-
-    // Map language and gender to Edge TTS Voice
-    const voiceMap: Record<string, { female: string, male: string }> = {
-        'zh': { female: 'zh-CN-XiaoxiaoNeural', male: 'zh-CN-YunxiNeural' },
-        'en': { female: 'en-US-AriaNeural', male: 'en-US-GuyNeural' },
-        'ja': { female: 'ja-JP-NanamiNeural', male: 'ja-JP-KeitaNeural' },
-        'ko': { female: 'ko-KR-SunHiNeural', male: 'ko-KR-InJoonNeural' },
-        'fr': { female: 'fr-FR-DeniseNeural', male: 'fr-FR-HenriNeural' },
-        'de': { female: 'de-DE-KatjaNeural', male: 'de-DE-ConradNeural' },
-        'es': { female: 'es-ES-ElviraNeural', male: 'es-ES-AlvaroNeural' },
-        'ru': { female: 'ru-RU-SvetlanaNeural', male: 'ru-RU-DmitryNeural' },
-    };
-
     let voice = 'en-US-AriaNeural'; // Default fallback
+
+    // Priority 1: Direct Voice Name (from new frontend)
+    if (voiceName) {
+        voice = voiceName;
+    } 
+    // Priority 2: Legacy VoiceType Mapping
+    else {
+        // Determine gender from voiceType (Tencent IDs)
+        // Female: 101001, 101002
+        // Male: 101003, 101004
+        const isMale = voiceType === 101003 || voiceType === 101004;
+        const gender = isMale ? 'male' : 'female';
     
-    if (lang && voiceMap[lang]) {
-        voice = voiceMap[lang][gender];
-    } else if (lang === 'auto') {
-        // Fallback or try to detect? 
-        // For now default to English Female
+        // Map language and gender to Edge TTS Voice
+        const voiceMap: Record<string, { female: string, male: string }> = {
+            'zh': { female: 'zh-CN-XiaoxiaoNeural', male: 'zh-CN-YunxiNeural' },
+            'en': { female: 'en-US-AriaNeural', male: 'en-US-GuyNeural' },
+            'ja': { female: 'ja-JP-NanamiNeural', male: 'ja-JP-KeitaNeural' },
+            'ko': { female: 'ko-KR-SunHiNeural', male: 'ko-KR-InJoonNeural' },
+            'fr': { female: 'fr-FR-DeniseNeural', male: 'fr-FR-HenriNeural' },
+            'de': { female: 'de-DE-KatjaNeural', male: 'de-DE-ConradNeural' },
+            'es': { female: 'es-ES-ElviraNeural', male: 'es-ES-AlvaroNeural' },
+            'ru': { female: 'ru-RU-SvetlanaNeural', male: 'ru-RU-DmitryNeural' },
+        };
+        
+        if (lang && voiceMap[lang]) {
+            voice = voiceMap[lang][gender];
+        }
     }
 
     const tts = new Communicate(text, { voice });
