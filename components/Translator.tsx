@@ -4,67 +4,159 @@ import { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
 import { Upload, Languages, Volume2, ArrowRight, Loader2, History as HistoryIcon, X, MonitorPlay, StopCircle, Settings, Copy, Trash2, Check } from 'lucide-react';
 import clsx from 'clsx';
-
-const LANGUAGES = [
-  { code: 'zh', name: 'Chinese (Simplified)' },
-  { code: 'en', name: 'English' },
-  { code: 'ja', name: 'Japanese' },
-  { code: 'ko', name: 'Korean' },
-  { code: 'fr', name: 'French' },
-  { code: 'es', name: 'Spanish' },
-  { code: 'de', name: 'German' },
-  { code: 'ru', name: 'Russian' },
-];
-
-const VOICES = [
-  { id: 101001, name: 'Voice 1 (Female)' },
-  { id: 101002, name: 'Voice 2 (Female)' },
-  { id: 101003, name: 'Voice 3 (Male)' },
-  { id: 101004, name: 'Voice 4 (Male)' },
-];
+import { useTranslator, LANGUAGES, VOICES } from '../hooks/useTranslator';
+import { useHistory } from '../hooks/useHistory';
+import { useGlossary } from '../hooks/useGlossary';
 
 export default function Translator({ onTranslationComplete }: { onTranslationComplete?: () => void }) {
-  const [sourceText, setSourceText] = useState('');
-  const [targetText, setTargetText] = useState('');
-  const [sourceLang, setSourceLang] = useState('auto');
-  const [targetLang, setTargetLang] = useState('en');
-  const [voiceType, setVoiceType] = useState(101001);
+  // Hooks
+  const { 
+    history, 
+    showHistory, 
+    setShowHistory, 
+    addToHistory, 
+    clearHistory 
+  } = useHistory();
+
+  const {
+    glossary,
+    setGlossary,
+    findMatchInWorker
+  } = useGlossary();
+
+  // We need to define updatePiPWindow before useTranslator because it's passed as a callback
+  // But updatePiPWindow depends on state variables like pipWidth.
+  // This is a circular dependency if we're not careful.
+  // However, updatePiPWindow mainly uses refs (pipCanvasRef) and current state.
+  // We can pass a stable reference or use a ref for the callback.
   
-  // History State
-  const [history, setHistory] = useState<Array<{ source: string, target: string, time: number }>>([]);
-  const [showHistory, setShowHistory] = useState(false);
+  // Let's keep PiP logic here for now as it's UI/DOM heavy.
+  const [pipWidth, setPipWidth] = useState(600);
+  const [pipHeight, setPipHeight] = useState(200);
+  const [pipFontSize, setPipFontSize] = useState(20);
+  const pipCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const pipVideoRef = useRef<HTMLVideoElement | null>(null);
+
+  const updatePiPWindow = (text: string, options?: { width?: number, height?: number, fontSize?: number }) => {
+    // Use the persistent canvas ref
+    if (!pipCanvasRef.current) {
+        pipCanvasRef.current = document.createElement('canvas');
+    }
+    const pipCanvas = pipCanvasRef.current;
+    
+    const w = options?.width ?? pipWidth;
+    const h = options?.height ?? pipHeight;
+    const fs = options?.fontSize ?? pipFontSize;
+
+    // Update dimensions if changed
+    if (pipCanvas.width !== w || pipCanvas.height !== h) {
+        pipCanvas.width = w;
+        pipCanvas.height = h;
+    }
+    
+    const ctx = pipCanvas.getContext('2d');
+    if (!ctx) return;
+
+    // Draw Background
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'; // Semi-transparent black/gray
+    ctx.fillRect(0, 0, pipCanvas.width, pipCanvas.height);
+
+    // Draw Text
+    ctx.fillStyle = '#ffffff';
+    // Use dynamic font size
+    ctx.font = `500 ${fs}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`; 
+    ctx.textBaseline = 'top';
+    
+    // Smart wrapping based on dynamic width and font size
+    const chars = text.split('');
+    let line = '';
+    let y = 16;
+    const maxWidth = w - 40; // Dynamic max width with padding
+    const lineHeight = fs * 1.5; // Dynamic line height (1.5x font size)
+    
+    for (let i = 0; i < chars.length; i++) {
+        const char = chars[i];
+        const testLine = line + char;
+        const metrics = ctx.measureText(testLine);
+        
+        if (metrics.width > maxWidth && i > 0) {
+            ctx.fillText(line, 20, y);
+            line = char;
+            y += lineHeight;
+            
+            if (y > pipCanvas.height - lineHeight) {
+                ctx.fillText("...", 20, y);
+                break;
+            }
+        } else {
+            line = testLine;
+        }
+    }
+    if (y <= pipCanvas.height - lineHeight) {
+        ctx.fillText(line, 20, y);
+    }
+
+    // If PiP video element doesn't exist, create it
+    if (!pipVideoRef.current) {
+        const video = document.createElement('video');
+        video.muted = true;
+        video.autoplay = true;
+        video.style.position = 'fixed';
+        video.style.bottom = '0';
+        video.style.right = '0';
+        video.style.width = '1px';
+        video.style.height = '1px';
+        video.style.pointerEvents = 'none';
+        video.style.opacity = '0'; // Hide it visually from page
+        document.body.appendChild(video);
+        pipVideoRef.current = video;
+    }
+
+    // Initialize stream only ONCE using the SAME canvas
+    if (!pipVideoRef.current.srcObject) {
+        const stream = pipCanvas.captureStream();
+        pipVideoRef.current.srcObject = stream;
+        
+        pipVideoRef.current.onloadedmetadata = () => {
+            pipVideoRef.current?.play();
+            // Enter PiP
+            pipVideoRef.current?.requestPictureInPicture().catch(e => console.error("PiP Error", e));
+        };
+    } else {
+        // If stream exists but PiP is not active, try to open it
+        // This works if the function is called via a user gesture (e.g. clicking Scan, toggling Auto, or dragging sliders)
+        if (!document.pictureInPictureElement) {
+             pipVideoRef.current.requestPictureInPicture().catch(e => {
+                 // console.warn("Auto-open PiP failed (needs user gesture):", e);
+             });
+        }
+    }
+  };
+
+  const [autoCapture, setAutoCapture] = useState(false);
+
+  const {
+    sourceText, setSourceText,
+    targetText, setTargetText,
+    sourceLang, setSourceLang,
+    targetLang, setTargetLang,
+    voiceType, setVoiceType,
+    loadingTranslate,
+    loadingTTS,
+    handleTextChange,
+    handleTranslate,
+    handleTTS,
+    performTranslation,
+    audioRef
+  } = useTranslator({
+    onTranslationComplete,
+    addToHistory,
+    updatePiPWindow,
+    autoCapture,
+    findMatchInWorker
+  });
+
   const [copied, setCopied] = useState(false);
-
-  // Load history from localStorage on mount
-  useEffect(() => {
-      const saved = localStorage.getItem('translation_history');
-      if (saved) {
-          try {
-              setHistory(JSON.parse(saved));
-          } catch (e) {
-              console.error("Failed to load history", e);
-          }
-      }
-  }, []);
-
-  const addToHistory = (src: string, tgt: string) => {
-      if (!src || !tgt) return;
-      setHistory(prev => {
-          // Avoid duplicates at the top
-          if (prev.length > 0 && prev[0].source === src && prev[0].target === tgt) return prev;
-          const newHistory = [{ source: src, target: tgt, time: Date.now() }, ...prev].slice(0, 100); // Keep last 100
-          localStorage.setItem('translation_history', JSON.stringify(newHistory));
-          return newHistory;
-      });
-  };
-  
-  const clearHistory = () => {
-      if (confirm('Are you sure you want to clear all history?')) {
-          setHistory([]);
-          localStorage.removeItem('translation_history');
-      }
-  };
-
   const handleCopy = () => {
       if (targetText) {
           navigator.clipboard.writeText(targetText);
@@ -74,18 +166,12 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
   };
 
   const [loadingOCR, setLoadingOCR] = useState(false);
-  const [loadingTranslate, setLoadingTranslate] = useState(false);
-  const [loadingTTS, setLoadingTTS] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
-
-  const [autoCapture, setAutoCapture] = useState(false);
-  const pipVideoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
     // Load SQL.js for SQLite support
@@ -312,53 +398,9 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
     setIsScreenSharing(false);
   };
 
-  const [pipWidth, setPipWidth] = useState(600);
-  const [pipHeight, setPipHeight] = useState(200);
-  const [pipFontSize, setPipFontSize] = useState(20); // Default font size 20px
   const [showPipSettings, setShowPipSettings] = useState(false);
   const [ocrMode, setOcrMode] = useState<'accurate' | 'basic'>('accurate'); // Default to accurate
-  const [glossary, setGlossary] = useState<Record<string, string>>({});
-  const [glossaryNormalized, setGlossaryNormalized] = useState<Record<string, string>>({});
-  const [glossaryTerms, setGlossaryTerms] = useState<string[]>([]);
   
-  // Worker for matching logic
-  const workerRef = useRef<Worker | null>(null);
-  
-  // Unique ID for worker requests to avoid race conditions
-  const requestIdRef = useRef(0);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-        workerRef.current = new Worker('/glossary-worker.js');
-        workerRef.current.onmessage = (e) => {
-             const { type, payload } = e.data;
-             if (type === 'LOAD_COMPLETE') {
-                 // Suppress log to avoid hydration mismatch/error overlay in dev
-                 // console.log(`Worker loaded ${payload.count} items.`);
-             }
-        };
-    }
-    return () => {
-        workerRef.current?.terminate();
-    };
-  }, []);
-  
-  // Helper to normalize strings for comparison (remove punctuation, whitespace, lowercase)
-  const normalizeForMatch = (str: string) => str.toLowerCase().replace(/[^\w\u4e00-\u9fa5\u3040-\u30ff\u31f0-\u31ff\uac00-\ud7af]/g, '');
-
-  // When glossary updates, send it to worker and clear local state if needed
-  useEffect(() => {
-      // We don't need to process it on main thread anymore!
-      // Just send to worker.
-      if (workerRef.current && Object.keys(glossary).length > 0) {
-          workerRef.current.postMessage({ type: 'LOAD_GLOSSARY', payload: glossary });
-      }
-      
-      // We can keep glossaryNormalized empty on main thread to save memory
-      // setGlossaryNormalized({});
-      // setGlossaryTerms([]);
-  }, [glossary]);
-
   const glossaryInputRef = useRef<HTMLInputElement>(null);
 
   const handleGlossaryUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -487,105 +529,6 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
       }
       e.target.value = ''; // Reset
   };
-
-  const updatePiPWindow = (text: string, options?: { width?: number, height?: number, fontSize?: number }) => {
-    // Use the persistent canvas ref
-    if (!pipCanvasRef.current) {
-        pipCanvasRef.current = document.createElement('canvas');
-    }
-    const pipCanvas = pipCanvasRef.current;
-    
-    const w = options?.width ?? pipWidth;
-    const h = options?.height ?? pipHeight;
-    const fs = options?.fontSize ?? pipFontSize;
-
-    // Update dimensions if changed
-    if (pipCanvas.width !== w || pipCanvas.height !== h) {
-        pipCanvas.width = w;
-        pipCanvas.height = h;
-    }
-    
-    const ctx = pipCanvas.getContext('2d');
-    if (!ctx) return;
-
-    // Draw Background
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'; // Semi-transparent black/gray
-    ctx.fillRect(0, 0, pipCanvas.width, pipCanvas.height);
-
-    // Draw Text
-    ctx.fillStyle = '#ffffff';
-    // Use dynamic font size
-    ctx.font = `500 ${fs}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`; 
-    ctx.textBaseline = 'top';
-    
-    // Smart wrapping based on dynamic width and font size
-    const chars = text.split('');
-    let line = '';
-    let y = 16;
-    const maxWidth = w - 40; // Dynamic max width with padding
-    const lineHeight = fs * 1.5; // Dynamic line height (1.5x font size)
-    
-    for (let i = 0; i < chars.length; i++) {
-        const char = chars[i];
-        const testLine = line + char;
-        const metrics = ctx.measureText(testLine);
-        
-        if (metrics.width > maxWidth && i > 0) {
-            ctx.fillText(line, 20, y);
-            line = char;
-            y += lineHeight;
-            
-            if (y > pipCanvas.height - lineHeight) {
-                ctx.fillText("...", 20, y);
-                break;
-            }
-        } else {
-            line = testLine;
-        }
-    }
-    if (y <= pipCanvas.height - lineHeight) {
-        ctx.fillText(line, 20, y);
-    }
-
-    // If PiP video element doesn't exist, create it
-    if (!pipVideoRef.current) {
-        const video = document.createElement('video');
-        video.muted = true;
-        video.autoplay = true;
-        video.style.position = 'fixed';
-        video.style.bottom = '0';
-        video.style.right = '0';
-        video.style.width = '1px';
-        video.style.height = '1px';
-        video.style.pointerEvents = 'none';
-        video.style.opacity = '0'; // Hide it visually from page
-        document.body.appendChild(video);
-        pipVideoRef.current = video;
-    }
-
-    // Initialize stream only ONCE using the SAME canvas
-    if (!pipVideoRef.current.srcObject) {
-        const stream = pipCanvas.captureStream();
-        pipVideoRef.current.srcObject = stream;
-        
-        pipVideoRef.current.onloadedmetadata = () => {
-            pipVideoRef.current?.play();
-            // Enter PiP
-            pipVideoRef.current?.requestPictureInPicture().catch(e => console.error("PiP Error", e));
-        };
-    } else {
-        // If stream exists but PiP is not active, try to open it
-        // This works if the function is called via a user gesture (e.g. clicking Scan, toggling Auto, or dragging sliders)
-        if (!document.pictureInPictureElement) {
-             pipVideoRef.current.requestPictureInPicture().catch(e => {
-                 // console.warn("Auto-open PiP failed (needs user gesture):", e);
-             });
-        }
-    }
-  };
-  
-  // Ref to hold persistent PiP canvas
-  const pipCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // Ref for image comparison to save OCR quota
   const prevImageRef = useRef<Uint8ClampedArray | null>(null);
@@ -730,102 +673,6 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
     }
   };
 
-  const performTranslation = async (text: string, sLang: string, tLang: string, silent = false) => {
-    const trimmedText = text.trim();
-
-    // Delegate ALL matching to Worker
-    if (workerRef.current && Object.keys(glossary).length > 0) {
-        // Increment request ID
-        const requestId = ++requestIdRef.current;
-        
-        try {
-            const workerResult = await new Promise<string | null>((resolve) => {
-                const handler = (e: MessageEvent) => {
-                    const { id, type, payload } = e.data;
-                    
-                    // Only handle messages for THIS request
-                    if (id !== requestId) return;
-
-                    if (type === 'MATCH_FOUND' || type === 'SUBSTITUTION_DONE') {
-                        workerRef.current?.removeEventListener('message', handler);
-                        if (!silent) console.log(`Worker matched: ${payload.method}`);
-                        
-                        // For Substitution, the payload is the text to be translated
-                        if (type === 'SUBSTITUTION_DONE') {
-                             // We still need to call API, so resolve with SPECIAL prefix or object?
-                             // Let's resolve with object to distinguish
-                             resolve(JSON.stringify({ type: 'PARTIAL', text: payload.text }));
-                        } else {
-                             // Full match found
-                             resolve(JSON.stringify({ type: 'FULL', text: payload.translated }));
-                        }
-                    } else if (type === 'NO_MATCH') {
-                        workerRef.current?.removeEventListener('message', handler);
-                        resolve(null);
-                    }
-                };
-
-                workerRef.current?.addEventListener('message', handler);
-                workerRef.current?.postMessage({ 
-                    id: requestId,
-                    type: 'FIND_MATCH', 
-                    payload: { text: trimmedText, silent } 
-                });
-
-                // Timeout fallback (e.g. 5 seconds)
-                setTimeout(() => {
-                    workerRef.current?.removeEventListener('message', handler);
-                    resolve(null);
-                }, 5000);
-            });
-
-            if (workerResult) {
-                const result = JSON.parse(workerResult);
-                if (result.type === 'FULL') {
-                        // Exact/Fuzzy match found -> Done
-                        setTargetText(result.text);
-                        addToHistory(trimmedText, result.text); // Add to history
-                        if (onTranslationComplete) onTranslationComplete();
-                        if (autoCapture || document.pictureInPictureElement) updatePiPWindow(result.text);
-                        return;
-                    } else if (result.type === 'PARTIAL') {
-                    // Substitution applied -> Continue to API
-                    text = result.text; // Update text for API call
-                }
-            }
-        } catch (e) {
-            console.error("Worker error", e);
-        }
-    }
-
-    if (!silent) setLoadingTranslate(true);
-    try {
-      const res = await axios.post('/api/translate', {
-        text: text, // Use potentially modified text
-        sourceLang: sLang,
-        targetLang: tLang,
-      });
-      if (res.data.translatedText) {
-        const translated = res.data.translatedText;
-        setTargetText(translated);
-        addToHistory(text, translated); // Add to history
-        if (onTranslationComplete) onTranslationComplete();
-        
-        // Update PiP window if active
-        if (autoCapture) {
-            updatePiPWindow(translated);
-        } else if (document.pictureInPictureElement) {
-             // Even if not auto capture, if PiP is open (e.g. from previous manual scan), update it
-             updatePiPWindow(translated);
-        }
-      }
-    } catch (error) {
-      console.error('Translation failed', error);
-    } finally {
-      if (!silent) setLoadingTranslate(false);
-    }
-  };
-
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -839,112 +686,6 @@ export default function Translator({ onTranslationComplete }: { onTranslationCom
       processOCR(base64String);
     };
     reader.readAsDataURL(file);
-  };
-
-const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const text = e.target.value;
-    setSourceText(text);
-    
-    // Auto-switch target language only when user is typing and source is auto
-    if (sourceLang === 'auto' && text.length > 0) {
-      // 1. Detect if text contains Chinese characters
-      const hasChinese = /[\u4e00-\u9fa5]/.test(text);
-      
-      // 2. Detect if text contains Japanese/Korean characters (Hiragana, Katakana, Hangul)
-      const hasJapaneseOrKorean = /[\u3040-\u30ff\u31f0-\u31ff\uac00-\ud7af]/.test(text);
-
-      if (hasChinese && !hasJapaneseOrKorean) {
-        // If it looks like pure Chinese, translate to English
-        setTargetLang('en');
-      } else if (hasJapaneseOrKorean) {
-         // If it has Japanese/Korean, translate to Chinese
-         setTargetLang('zh');
-      } else {
-        // For other cases (mostly Latin/English), translate to Chinese
-        // But only if it has some content
-        if (/[a-zA-Z]/.test(text)) {
-           setTargetLang('zh');
-        }
-      }
-    }
-  };
-
-  const handleTranslate = async () => {
-    if (!sourceText) return;
-    setLoadingTranslate(true);
-    try {
-      const res = await axios.post('/api/translate', {
-        text: sourceText,
-        sourceLang,
-        targetLang,
-      });
-      if (res.data.translatedText) {
-        setTargetText(res.data.translatedText);
-        if (onTranslationComplete) onTranslationComplete();
-      }
-    } catch (error: any) {
-      console.error('Translation failed', error);
-      const msg = error.response?.data?.error || 'Translation failed. Please check your network or API keys.';
-      // alert(msg); // Suppress annoying alerts for translation errors
-      setTargetText(`Error: ${msg}`); // Show error in the text box instead
-    } finally {
-      setLoadingTranslate(false);
-    }
-  };
-
-  const handleTTS = async () => {
-    if (!targetText) return;
-    setLoadingTTS(true);
-    try {
-      const res = await axios.post('/api/tts', {
-        text: targetText,
-        voiceType,
-        lang: targetLang,
-      });
-      if (res.data.audio) {
-        const audioSrc = `data:audio/mp3;base64,${res.data.audio}`;
-        if (audioRef.current) {
-          audioRef.current.src = audioSrc;
-          audioRef.current.play();
-        } else {
-          const audio = new Audio(audioSrc);
-          audioRef.current = audio;
-          audio.play();
-        }
-      }
-    } catch (error: any) {
-      console.error('TTS API failed, switching to browser TTS', error);
-      // Fallback to browser native TTS (Free)
-      speakWithBrowser(targetText);
-    } finally {
-      setLoadingTTS(false);
-    }
-  };
-
-  const speakWithBrowser = (text: string) => {
-    if ('speechSynthesis' in window) {
-      // Cancel any ongoing speech
-      window.speechSynthesis.cancel();
-
-      const utterance = new SpeechSynthesisUtterance(text);
-      
-      // Map our language codes to browser locales
-      const langMap: Record<string, string> = {
-        'zh': 'zh-CN',
-        'en': 'en-US',
-        'ja': 'ja-JP',
-        'ko': 'ko-KR',
-        'fr': 'fr-FR',
-        'es': 'es-ES',
-        'de': 'de-DE',
-        'ru': 'ru-RU'
-      };
-      
-      utterance.lang = langMap[targetLang] || 'en-US';
-      window.speechSynthesis.speak(utterance);
-    } else {
-      alert('Your browser does not support text-to-speech.');
-    }
   };
 
   return (
